@@ -1,0 +1,336 @@
+{
+  "name": "Action Approval Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "action-approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "486efa26-964a-4bde-bfe7-03d183f5f83c",
+      "name": "Webhook (approve/reject)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -176,
+        -16
+      ],
+      "webhookId": "3e3baa06-a0c4-43ac-8c23-f3f5dac056cc"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "10378324-298e-4775-916a-2eb2c0b3d050",
+              "leftValue": "={{ $json.query.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "da688a40-7916-4e59-bba5-f21ba27413d2",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        48,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions\nSET status = 'executed', executed_at = now(), decided_at = now()\nWHERE id = {{ $json.query.id }}\nRETURNING id, account, action_type, hypothesis, utm_campaign, tracked_url, outreach_draft;",
+        "options": {}
+      },
+      "id": "c77d1551-11f4-4427-a15a-bc9d57cf937e",
+      "name": "Mark Executed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        288,
+        -112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions\nSET status = 'cancelled',\n    rejection_reason = NULLIF('{{ $json.query.reason }}', ''),\n    rejection_routed_to = CASE\n      WHEN '{{ $json.query.reason }}' = 'stale_fact' THEN 'tabita'\n      WHEN '{{ $json.query.reason }}' = '' THEN NULL\n      ELSE 'engine' END,\n    decided_at = now()\nWHERE id = {{ $json.query.id }}\nRETURNING id, account, rejection_reason, rejection_routed_to, (select raw_payload from pipeline_runs where id = actions.run_id) as raw_payload, (select value from app_config where key='when_engine_url') as when_engine_url;",
+        "options": {}
+      },
+      "id": "8e31943e-6bbb-46b0-8c45-49e2ad18faea",
+      "name": "Mark Cancelled",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        288,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "rep@yourcompany.com",
+        "subject": "=Approved action for {{ $json.account }}",
+        "emailType": "text",
+        "message": "=Action: {{ $json.action_type }} for {{ $json.account }}\nHypothesis: {{ $json.hypothesis }}\n\n— Suggested message (WHEN engine draft) —\n{{ $json.outreach_draft || '(none provided — write your own)' }}\n\nTracked link to include in your outreach: {{ $json.tracked_url }}",
+        "options": {}
+      },
+      "id": "b653a12f-0ff7-4087-bbd9-ca959cf5333e",
+      "name": "Send Action to Rep",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        -112
+      ],
+      "webhookId": "0a49e9f0-0bfb-4f25-a5a1-3f484faa2843",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vKMX1dZQWsi80BVz",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✓ Approved — action {{ $json.id }} for {{ $json.account }} will be executed.",
+        "options": {}
+      },
+      "id": "66008ac9-54f3-4897-9fde-8460017fa5ff",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✕ Action rejected — forwarded to WHEN Engine for re-decision.",
+        "options": {}
+      },
+      "id": "6adff059-dc68-4cfa-8e56-ba0361a3dd27",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1312,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nif (!brief || typeof brief !== 'object') {\n  brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.account || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n}\nbrief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\nbrief.human_signals.push({ type:'human_rejection', gate:'action', reason: row.rejection_reason || 'rejected_by_human', routed_to: row.rejection_routed_to || 'engine', rejected_at:new Date().toISOString(), source:'delivery_layer', action_id: row.id });\nreturn [{ json: { when_engine_url: row.when_engine_url || '', payload: brief } }];"
+      },
+      "id": "3e7804e3-389c-452e-9c6e-e70ba79be005",
+      "name": "Build WHEN Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "u1",
+              "leftValue": "={{ $json.when_engine_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "82464671-93aa-4840-8aa5-324fdc63874a",
+      "name": "Engine URL set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        816,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.when_engine_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "f056fc56-274b-42db-bdbf-5fded07066c7",
+      "name": "Forward to WHEN Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1056,
+        -16
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook (approve/reject)": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark Executed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Executed": {
+      "main": [
+        [
+          {
+            "node": "Send Action to Rep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Action to Rep": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Cancelled": {
+      "main": [
+        [
+          {
+            "node": "Build WHEN Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WHEN Feedback": {
+      "main": [
+        [
+          {
+            "node": "Engine URL set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine URL set?": {
+      "main": [
+        [
+          {
+            "node": "Forward to WHEN Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to WHEN Engine": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "a0c9b917-5af9-47fb-9b68-2ee00f11fa08",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "c6e7586b49d43eca714f71144f9f77630192013f599f492ed1613f9a7365db55"
+  },
+  "nodeGroups": [],
+  "id": "UyplqAAHgTNOvRuC",
+  "tags": []
+}

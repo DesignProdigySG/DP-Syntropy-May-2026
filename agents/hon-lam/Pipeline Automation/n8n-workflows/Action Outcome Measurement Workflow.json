@@ -1,0 +1,479 @@
+{
+  "name": "Action Outcome Measurement Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "49c18e4a-d1ce-43d3-9dbb-97f4741a39c4",
+      "name": "Schedule (daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -272,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, account, utm_campaign, predicted_metric, predicted_direction, threshold, executed_at, window_days\nFROM actions\nWHERE status = 'executed'\n  AND executed_at + (window_days || ' days')::interval <= now();",
+        "options": {}
+      },
+      "id": "20d86c08-28ef-467d-955d-d788b31ffb78",
+      "name": "Get Due Actions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        64,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://analyticsdata.googleapis.com/v1beta/properties/{{ $('Get Config').first().json.ga4_property_id || '542471069' }}:runReport",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"dateRanges\": [{ \"startDate\": \"{{ $json.executed_at.toString().slice(0,10) }}\", \"endDate\": \"today\" }],\n  \"dimensions\": [{ \"name\": \"sessionManualCampaignName\" }],\n  \"metrics\": [{ \"name\": \"sessions\" }],\n  \"dimensionFilter\": { \"filter\": {\n    \"fieldName\": \"sessionManualCampaignName\",\n    \"stringFilter\": { \"value\": \"{{ $json.utm_campaign }}\" }\n  }}\n}",
+        "options": {}
+      },
+      "id": "c7a64193-9b6f-4460-bb82-534216635b2e",
+      "name": "Query GA4 (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        0
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "y2gRhCm6qQpZSW4d",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const a    = $('Get Due Actions').item.json;\nconst resp = $json;\nconst rows = resp.rows || [];\nconst measured = rows.reduce((s, r) => s + Number(r.metricValues?.[0]?.value || 0), 0);\nconst met = a.predicted_direction === 'increase'\n  ? measured >= Number(a.threshold)\n  : measured <= Number(a.threshold);\nreturn [{ json: {\n  action_id:       a.id,\n  measured_metric: a.predicted_metric,\n  measured_value:  measured,\n  result:          met ? 'met' : 'not_met',\n  source:          'ga4',\n  window_start:    a.executed_at,\n  window_end:      new Date().toISOString()\n}}];"
+      },
+      "id": "b17e86e7-f0d2-4e00-8554-5cd7fc699389",
+      "name": "Evaluate vs Hypothesis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "outcomes",
+          "cachedResultName": "outcomes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "action_id": "={{ $json.action_id }}",
+            "measured_metric": "={{ $json.measured_metric }}",
+            "measured_value": "={{ $json.measured_value }}",
+            "result": "={{ $json.result }}",
+            "source": "={{ $json.source }}",
+            "window_start": "={{ $json.window_start }}",
+            "window_end": "={{ $json.window_end }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "7741e9eb-09d6-4cac-8082-53ffb89f2723",
+      "name": "Insert Outcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions SET status = 'measured' WHERE id = {{ $('Evaluate vs Hypothesis').item.json.action_id }};",
+        "options": {}
+      },
+      "id": "f98fd1f7-05d7-41bd-9d7a-9d2c4e13afff",
+      "name": "Mark Measured",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1104,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "rt-1",
+              "leftValue": "={{ $json.predicted_metric }}",
+              "rightValue": "page_visits",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61f88099-90d8-404f-9ef9-57ce35767b66",
+      "name": "Route by metric",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "2d5e039a-63d9-4b9a-acbc-24347c7a8996",
+      "name": "Loop Replies",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        560,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "q": "=\"{{ $('Loop Replies').first().json.utm_campaign }}\" after:{{ Math.floor(new Date($('Loop Replies').first().json.executed_at).getTime()/1000) }}"
+        }
+      },
+      "id": "79c4c5c7-bfab-41a0-af13-db5547e4bebf",
+      "name": "Search Replies (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        784,
+        320
+      ],
+      "alwaysOutputData": true,
+      "webhookId": "f4029657-614a-41f9-ad33-a4ecb8963cec",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vKMX1dZQWsi80BVz",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count reply emails attributed to this action's utm_campaign token.\n// Works for the 'email' channel when the outbound message carries the tracked link\n// (which embeds utm_campaign). LinkedIn DMs are NOT visible to Gmail.\nconst a = $('Loop Replies').first().json;          // the action row\nconst emails = $input.all();                       // matching messages (alwaysOutputData -> may be 1 empty item)\nconst replies = emails.filter(e => e.json && (e.json.id || e.json.threadId || e.json.snippet)).length;\nconst met = a.predicted_direction === 'increase'\n  ? replies >= Number(a.threshold)\n  : replies <= Number(a.threshold);\nreturn [{ json: {\n  action_id:       a.id,\n  measured_metric: a.predicted_metric,\n  measured_value:  replies,\n  result:          met ? 'met' : 'not_met',\n  source:          'gmail',\n  window_start:    a.executed_at,\n  window_end:      new Date().toISOString()\n}}];"
+      },
+      "id": "58997a1c-4cfa-4aa8-8a6e-60b4c4061cd9",
+      "name": "Evaluate Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "outcomes",
+          "cachedResultName": "outcomes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "action_id": "={{ $json.action_id }}",
+            "measured_metric": "={{ $json.measured_metric }}",
+            "measured_value": "={{ $json.measured_value }}",
+            "result": "={{ $json.result }}",
+            "source": "={{ $json.source }}",
+            "window_start": "={{ $json.window_start }}",
+            "window_end": "={{ $json.window_end }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "319682e1-7c11-426f-8c97-cbd516fa9ff2",
+      "name": "Insert Outcome (reply)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1232,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions SET status = 'measured' WHERE id = {{ $('Loop Replies').first().json.id }};",
+        "options": {}
+      },
+      "id": "24f07911-4a93-4598-97f4-0721f8ab1864",
+      "name": "Mark Measured (reply)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1440,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  max(value) filter (where key='tracking_base_url') as tracking_base_url,\n  max(value) filter (where key='ga4_property_id')  as ga4_property_id\nFROM app_config;",
+        "options": {}
+      },
+      "id": "fda49ffd-aca7-46b0-be74-e6730a9d118d",
+      "name": "Get Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -96,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Query GA4 (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate vs Hypothesis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate vs Hypothesis": {
+      "main": [
+        [
+          {
+            "node": "Insert Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Outcome": {
+      "main": [
+        [
+          {
+            "node": "Mark Measured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Due Actions": {
+      "main": [
+        [
+          {
+            "node": "Route by metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by metric": {
+      "main": [
+        [
+          {
+            "node": "Query GA4 (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Replies": {
+      "main": [
+        null,
+        [
+          {
+            "node": "Search Replies (Gmail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Replies (Gmail)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Reply": {
+      "main": [
+        [
+          {
+            "node": "Insert Outcome (reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Outcome (reply)": {
+      "main": [
+        [
+          {
+            "node": "Mark Measured (reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Measured (reply)": {
+      "main": [
+        [
+          {
+            "node": "Loop Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule (daily)": {
+      "main": [
+        [
+          {
+            "node": "Get Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Config": {
+      "main": [
+        [
+          {
+            "node": "Get Due Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "f208a11b-4caa-4cb3-9db2-471a675e9fec",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "c6e7586b49d43eca714f71144f9f77630192013f599f492ed1613f9a7365db55"
+  },
+  "nodeGroups": [],
+  "id": "RMPUPcf2o0ltJVeG",
+  "tags": []
+}

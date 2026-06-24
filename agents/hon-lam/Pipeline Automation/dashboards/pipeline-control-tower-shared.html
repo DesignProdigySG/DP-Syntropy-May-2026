@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pipeline Control Tower</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js"></script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:#f7f8fa; color:#1f2430;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .topbar { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+  h1 { font-size:20px; margin:0 0 2px 0; }
+  .subtitle { color:#5b6472; font-size:13px; margin:0 0 14px 0; }
+  #refreshBtn { background:#2563eb; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; }
+  #refreshBtn:hover { background:#1d4ed8; }
+  #lastUpdated { font-size:12px; color:#8a93a3; }
+  .tabs { display:flex; gap:6px; border-bottom:1px solid #e4e7ec; margin-bottom:18px; }
+  .tab { padding:9px 16px; font-size:14px; cursor:pointer; border:none; background:none; color:#5b6472; border-bottom:2px solid transparent; }
+  .tab.active { color:#2563eb; border-bottom-color:#2563eb; font-weight:600; }
+  .tab .badge { background:#eef2ff; color:#2563eb; border-radius:20px; font-size:11px; padding:1px 8px; margin-left:6px; }
+  .tabpanel { display:none; } .tabpanel.active { display:block; }
+  .card { background:#fff; border:1px solid #e4e7ec; border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .account { font-size:16px; font-weight:600; }
+  .pill { font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; background:#eef2ff; color:#2563eb; }
+  .pill.urg { background:#fef3f2; color:#b42318; }
+  .meta { color:#5b6472; font-size:13px; margin:8px 0; line-height:1.6; }
+  .hyp { background:#f7f8fa; border-radius:8px; padding:10px 12px; font-size:13px; margin:8px 0; }
+  .actions-row { display:flex; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap; }
+  a.brief { font-size:12px; color:#2563eb; text-decoration:none; }
+  .actions-row button { font-size:13px; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid transparent; }
+  .approve { background:#16a34a; color:#fff; } .approve:hover { background:#15803d; }
+  .reject { background:#fff; color:#b42318; border-color:#fecdca; } .reject:hover { background:#fef3f2; }
+  select { font-size:13px; padding:7px 10px; border:1px solid #e4e7ec; border-radius:8px; }
+  .empty, .err { font-size:14px; color:#5b6472; background:#fff; border:1px solid #e4e7ec; border-radius:10px; padding:20px; }
+  .err { color:#b42318; background:#fef3f2; border-color:#fecdca; }
+  .kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:20px; }
+  .kpi-card { background:#fff; border:1px solid #e4e7ec; border-radius:10px; padding:14px 16px; }
+  .kpi-label { font-size:12px; color:#5b6472; margin-bottom:6px; }
+  .kpi-value { font-size:24px; font-weight:600; }
+  .kpi-sub { font-size:11px; color:#8a93a3; margin-top:2px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  .panel { background:#fff; border:1px solid #e4e7ec; border-radius:10px; padding:16px; }
+  .panel.full { grid-column:1 / -1; }
+  .panel h2 { font-size:14px; margin:0 0 12px 0; }
+  .section-h { font-size:16px; margin:26px 0 12px 0; }
+  .chart-wrap { position:relative; height:240px; } .chart-wrap.tall { height:320px; }
+  .loading { color:#8a93a3; font-size:13px; }
+  th.gridjs-th { background:#f7f8fa; text-align:left; padding:8px 10px; border-bottom:1px solid #e4e7ec; font-weight:600; }
+  td.gridjs-td { padding:8px 10px; border-bottom:1px solid #f0f1f3; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Pipeline Control Tower</h1>
+    <p class="subtitle">Approve briefs, review actions, and monitor the pipeline — one place.</p>
+  </div>
+  <div><span id="lastUpdated"></span> &nbsp; <button id="refreshBtn" onclick="refreshActive()">Refresh</button></div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" id="tabbtn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
+  <button class="tab" id="tabbtn-briefs" onclick="showTab('briefs')">Briefs <span class="badge" id="briefBadge">—</span></button>
+  <button class="tab" id="tabbtn-review" onclick="showTab('review')">Actions <span class="badge" id="reviewBadge">—</span></button>
+  <button class="tab" id="tabbtn-settings" onclick="showTab('settings')">Settings</button>
+</div>
+
+<div class="tabpanel" id="tab-settings">
+  <div class="card" style="max-width:640px;">
+    <h2 style="font-size:16px;margin:0 0 4px 0;">Tracking configuration</h2>
+    <p class="meta" style="margin-top:0;">Set the website your outreach links point to (must have GA4 installed) and your GA4 property ID. Read-only shared view - these values are managed by the pipeline owner.</p>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Tracking base URL</label>
+      <input id="cfgUrl" type="text" disabled placeholder="https://www.yourcompany.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Outreach links become <code>&lt;this&gt;?utm_source=…&amp;utm_campaign=…</code></div>
+    </div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">GA4 property ID</label>
+      <input id="cfgGa4" type="text" disabled placeholder="e.g. 123456789" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Numeric GA4 property used to measure page visits.</div>
+    </div>
+    <div class="actions-row">
+      <span class="kpi-sub" style="color:#8a93a3">Read-only view - tracking configuration is managed by the pipeline owner.</span>
+      <span id="cfgStatus" class="kpi-sub"></span>
+    </div>
+  </div>
+</div>
+
+<div class="tabpanel" id="tab-briefs">
+  <div id="briefList"><div class="empty">Loading…</div></div>
+</div>
+
+<div class="tabpanel" id="tab-review">
+  <div id="list"><div class="empty">Loading…</div></div>
+</div>
+
+<div class="tabpanel active" id="tab-dashboard">
+  <div class="kpi-row" style="grid-template-columns:repeat(3,1fr);">
+    <div class="kpi-card"><div class="kpi-label">Total runs</div><div class="kpi-value" id="kpiTotal">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Brief generated</div><div class="kpi-value" id="kpiBrief">—</div><div class="kpi-sub" id="kpiBriefSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Human approved</div><div class="kpi-value" id="kpiApproved">—</div><div class="kpi-sub" id="kpiApprovedSub"></div></div>
+  </div>
+
+  <div class="panel full" style="margin-bottom:16px;">
+    <h2>Run volume over time (by day, run_at)</h2>
+    <div class="chart-wrap" id="trendWrap"><canvas id="trendChart"></canvas></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><h2>Funnel</h2><div class="chart-wrap" id="funnelWrap"><canvas id="funnelChart"></canvas></div></div>
+    <div class="panel"><h2>Coverage label distribution</h2><div class="chart-wrap" id="coverageWrap"><canvas id="coverageChart"></canvas></div></div>
+  </div>
+
+  <div class="panel full" style="margin-bottom:16px;"><h2>Trigger type distribution</h2><div class="chart-wrap tall" id="triggerWrap"><canvas id="triggerChart"></canvas></div></div>
+
+  <h2 class="section-h">Segmentation &amp; enrichment</h2>
+  <div class="kpi-row" style="grid-template-columns:repeat(3,1fr);">
+    <div class="kpi-card"><div class="kpi-label">Buying groups needing enrichment</div><div class="kpi-value" id="kpiEnrichNeed">—</div><div class="kpi-sub" id="kpiEnrichSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Fully enriched</div><div class="kpi-value" id="kpiEnrichOk">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total runs</div><div class="kpi-value" id="kpiEnrichTotal">—</div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h2>By industry</h2><div class="chart-wrap" id="industryWrap"><canvas id="industryChart"></canvas></div></div>
+    <div class="panel"><h2>By theme</h2><div class="chart-wrap" id="themeWrap"><canvas id="themeChart"></canvas></div></div>
+  </div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>By trigger type (WHEN notes)</h2><div class="chart-wrap tall" id="triggerNotesWrap"><canvas id="triggerNotesChart"></canvas></div></div>
+
+  <h2 class="section-h">Action &amp; Outcome Loop</h2>
+  <div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">Actions recommended</div><div class="kpi-value" id="kpiActRec">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Executed</div><div class="kpi-value" id="kpiActExec">—</div><div class="kpi-sub" id="kpiActExecSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Measured</div><div class="kpi-value" id="kpiActMeas">—</div><div class="kpi-sub" id="kpiActMeasSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Cancelled</div><div class="kpi-value" id="kpiActCanc">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Hypothesis win rate</div><div class="kpi-value" id="kpiWin">—</div><div class="kpi-sub" id="kpiWinSub"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h2>Action funnel</h2><div class="chart-wrap" id="actionFunnelWrap"><canvas id="actionFunnelChart"></canvas></div></div>
+    <div class="panel"><h2>Hypothesis win-rate by action type</h2><div class="chart-wrap" id="winrateWrap"><canvas id="winrateChart"></canvas></div><div class="kpi-sub" id="winrateNote" style="margin-top:8px;"></div></div>
+  </div>
+
+  <div class="panel full" style="margin-bottom:16px;"><h2>Channel performance — touches vs conversions by channel</h2><div class="chart-wrap" id="channelWrap"><canvas id="channelChart"></canvas></div></div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>Attribution — conversions credited by campaign / source (last-touch)</h2><div class="chart-wrap" id="attribWrap"><canvas id="attribChart"></canvas></div></div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>Correction rate over cycles — down = the system is getting sharper</h2><div class="chart-wrap" id="correctionWrap"><canvas id="correctionChart"></canvas></div></div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>Rejection reasons — where feedback routes</h2><div class="chart-wrap" id="rejectWrap"><canvas id="rejectChart"></canvas></div></div>
+  <div class="panel full"><h2>Error health — pipeline_errors by phase / node</h2><div id="errorTable" class="loading">Loading…</div></div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://fqsqoxsosavjhdsvfevk.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_UdFXLsE_ivpVvya5fxLfvw_MfqIpsYV';
+const ACTION_WEBHOOK = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';
+const BRIEF_WEBHOOK  = 'https://designprodigy.app.n8n.cloud/webhook/brief-approval';
+const palette = ['#2563eb','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#475569'];
+let charts = {};
+
+async function fetchView(view, query) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${view}?${query||'select=*'}`, {
+    headers: { apikey: SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) throw new Error(`${view} (${res.status}): ${(await res.text()).slice(0,160)}`);
+  const r = await res.json();
+  return Array.isArray(r) ? r : (r ? [r] : []);
+}
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function pct(n,d){ return !d ? '0%' : Math.round((n/d)*100)+'%'; }
+function showError(id,err){ const e=document.getElementById(id); if(e) e.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+function makeChart(id,cfg){ if(charts[id]) charts[id].destroy(); charts[id]=new Chart(document.getElementById(id),cfg); }
+
+/* BRIEFS */
+function decideBrief(id, action){
+  window.open(`${BRIEF_WEBHOOK}?id=${encodeURIComponent(id)}&action=${action}`, '_blank');
+  setTimeout(loadBriefs, 1500);
+}
+function briefCard(r){
+  const urg = r.when_urgency ? `<span class="pill urg">${esc(r.when_urgency)}</span>` : '';
+  const link = r.brief_s3_url ? `<a class="brief" href="${esc(r.brief_s3_url)}" target="_blank">View brief ↗</a>` : '';
+  return `<div class="card">
+    <div class="card-head"><span class="account">${esc(r.company)}</span><span>${urg}<span class="pill">brief</span></span></div>
+    <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; ${esc(r.run_sgt||'')} &nbsp;·&nbsp; ${link}</div>
+    <div class="actions-row">
+      <button class="approve" onclick="decideBrief(${r.id},'approve')">✓ Approve brief</button>
+      <button class="reject" onclick="decideBrief(${r.id},'reject')">✕ Reject</button>
+    </div></div>`;
+}
+async function loadBriefs(){
+  const list=document.getElementById('briefList');
+  try{
+    const rows=await fetchView('console_pending_briefs');
+    document.getElementById('briefBadge').textContent=rows.length;
+    list.innerHTML = rows.length ? rows.map(briefCard).join('') : '<div class="empty">🎉 No briefs awaiting approval.</div>';
+  }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+
+/* ACTIONS */
+const REASONS = [
+  { v:'stale_fact', label:'Stale fact (→ Tabita)' },
+  { v:'wrong_timing', label:'Wrong timing (→ engine)' },
+  { v:'wrong_approach', label:'Wrong approach (→ engine)' }
+];
+function decide(id, action, reason) {
+  let url = `${ACTION_WEBHOOK}?id=${encodeURIComponent(id)}&action=${action}`;
+  if (reason) url += `&reason=${encodeURIComponent(reason)}`;
+  window.open(url, '_blank'); setTimeout(loadReview, 1500);
+}
+function card(r){
+  const opts = REASONS.map(x=>`<option value="${x.v}">${x.label}</option>`).join('');
+  const urg = r.when_urgency ? `<span class="pill urg">${esc(r.when_urgency)}</span>` : '';
+  const brief = r.brief_s3_url ? `<a class="brief" href="${esc(r.brief_s3_url)}" target="_blank">View brief ↗</a>` : '';
+  return `<div class="card">
+    <div class="card-head"><span class="account">${esc(r.account)}</span><span>${urg}<span class="pill">${esc(r.action_type)}</span></span></div>
+    <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; Metric: ${esc(r.predicted_metric||'—')} &nbsp;·&nbsp; ${brief}</div>
+    <div class="hyp">${esc(r.hypothesis)}</div>
+    <div class="actions-row">
+      <button class="approve" onclick="decide(${r.id},'approve')">✓ Approve</button>
+      <select id="reason-${r.id}">${opts}</select>
+      <button class="reject" onclick="decide(${r.id},'reject',document.getElementById('reason-${r.id}').value)">✕ Reject</button>
+    </div></div>`;
+}
+async function loadReview(){
+  const list=document.getElementById('list');
+  try{
+    const rows=await fetchView('console_pending_actions');
+    document.getElementById('reviewBadge').textContent=rows.length;
+    list.innerHTML = rows.length ? rows.map(card).join('') : '<div class="empty">🎉 Nothing pending — all caught up.</div>';
+  }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+
+/* DASHBOARD */
+async function loadKpisAndFunnel(){
+  try{
+    const row=(await fetchView('dashboard_kpis'))[0]||{};
+    const total=+row.total||0,briefs=+row.briefs_generated||0,appr=+row.approved||0;
+    kpiTotal.textContent=total; kpiBrief.textContent=pct(briefs,total); kpiBriefSub.textContent=briefs+' of '+total;
+    kpiApproved.textContent=pct(appr,briefs); kpiApprovedSub.textContent=appr+' of '+briefs+' briefs';
+    makeChart('funnelChart',{type:'bar',data:{labels:['Total','Brief','Approved'],datasets:[{data:[total,briefs,appr],backgroundColor:palette[0]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+  }catch(err){ showError('funnelWrap',err); }
+}
+async function loadDist(view,canvas,wrap,color,horizontal){
+  try{
+    const rows=await fetchView(view); rows.sort((a,b)=>b.n-a.n);
+    const va={beginAtZero:true,ticks:{precision:0}};
+    makeChart(canvas,{type:'bar',data:{labels:rows.map(r=>r.label),datasets:[{data:rows.map(r=>+r.n),backgroundColor:color}]},options:{indexAxis:horizontal?'y':'x',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:horizontal?{x:va}:{y:va}}});
+  }catch(err){ showError(wrap,err); }
+}
+async function loadTrend(){
+  try{
+    const rows=await fetchView('dashboard_trend');
+    const k=r=>String(r.day).slice(0,10); rows.sort((a,b)=>k(a).localeCompare(k(b)));
+    makeChart('trendChart',{type:'line',data:{labels:rows.map(r=>new Date(k(r)+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})),datasets:[{data:rows.map(r=>+r.n),borderColor:palette[1],backgroundColor:'rgba(8,145,178,0.12)',fill:true,tension:0.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  }catch(err){ showError('trendWrap',err); }
+}
+async function loadActionFunnel(){
+  try{
+    const f=(await fetchView('dashboard_action_funnel'))[0]||{};
+    const rec=+f.recommended||0,ex=+f.executed||0,me=+f.measured||0,ca=+f.cancelled||0;
+    kpiActRec.textContent=rec; kpiActExec.textContent=ex; kpiActExecSub.textContent=pct(ex,rec)+' of recommended';
+    kpiActMeas.textContent=me; kpiActMeasSub.textContent=pct(me,ex)+' of executed'; kpiActCanc.textContent=ca;
+    makeChart('actionFunnelChart',{type:'bar',data:{labels:['Recommended','Executed','Measured'],datasets:[{data:[rec,ex,me],backgroundColor:palette[5]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  }catch(err){ showError('actionFunnelWrap',err); }
+}
+async function loadWinrate(){
+  try{
+    const rows=await fetchView('dashboard_hypothesis_winrate'); rows.sort((a,b)=>b.measured-a.measured);
+    let tm=0,tt=0; rows.forEach(r=>{tt+=+r.measured||0; tm+=+r.met||0;});
+    kpiWin.textContent=pct(tm,tt); kpiWinSub.textContent=tm+' of '+tt+' measured';
+    makeChart('winrateChart',{type:'bar',data:{labels:rows.map(r=>r.action_type),datasets:[{label:'Met',data:rows.map(r=>+r.met||0),backgroundColor:palette[2]},{label:'Measured',data:rows.map(r=>+r.measured||0),backgroundColor:palette[6]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+    document.getElementById('winrateNote').textContent = tt===0 ? 'No outcomes measured yet.' : '';
+  }catch(err){ showError('winrateWrap',err); }
+}
+async function loadChannel(){
+  try{
+    const rows=await fetchView('dashboard_channel_performance'); rows.sort((a,b)=>b.touches-a.touches);
+    makeChart('channelChart',{type:'bar',data:{labels:rows.map(r=>r.channel),datasets:[{label:'Touches',data:rows.map(r=>+r.touches),backgroundColor:palette[1]},{label:'Conversions',data:rows.map(r=>+r.conversions),backgroundColor:palette[2]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  }catch(err){ showError('channelWrap',err); }
+}
+async function loadAttribution(){
+  try{
+    const rows=await fetchView('dashboard_attribution_summary'); rows.sort((a,b)=>b.conversions-a.conversions);
+    makeChart('attribChart',{type:'bar',data:{labels:rows.map(r=>`${r.campaign} · ${r.source}`),datasets:[{data:rows.map(r=>+r.conversions),backgroundColor:palette[2]}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});
+  }catch(err){ showError('attribWrap',err); }
+}
+async function loadCorrectionRate(){
+  try{
+    const rows=await fetchView('dashboard_correction_rate');
+    const k=r=>String(r.cycle).slice(0,10); rows.sort((a,b)=>k(a).localeCompare(k(b)));
+    makeChart('correctionChart',{type:'line',data:{labels:rows.map(r=>new Date(k(r)+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})),datasets:[{label:'Correction rate',data:rows.map(r=>+r.correction_rate_pct),borderColor:palette[4],backgroundColor:'rgba(220,38,38,0.10)',fill:true,tension:0.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}}}});
+  }catch(err){ showError('correctionWrap',err); }
+}
+async function loadRejections(){
+  try{
+    const rows=await fetchView('dashboard_rejection_reasons'); rows.sort((a,b)=>b.n-a.n);
+    const labels=rows.map(r=> r.routed_to && r.routed_to!=='—' ? `${r.label} → ${r.routed_to}` : r.label);
+    makeChart('rejectChart',{type:'bar',data:{labels,datasets:[{data:rows.map(r=>+r.n),backgroundColor:palette[4]}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});
+  }catch(err){ showError('rejectWrap',err); }
+}
+async function loadErrorTable(){
+  try{
+    const rows=await fetchView('dashboard_error_health'); rows.sort((a,b)=>b.errors-a.errors);
+    document.getElementById('errorTable').innerHTML='';
+    new gridjs.Grid({columns:['Phase','Node','Errors','Unresolved'],data:rows.map(r=>[r.phase,r.node_name,+r.errors,+r.unresolved]),search:true,sort:true,pagination:{limit:8}}).render(document.getElementById('errorTable'));
+  }catch(err){ showError('errorTable',err); }
+}
+async function loadEnrichment(){
+  try{
+    const r=(await fetchView('dashboard_enrichment'))[0]||{};
+    const need=+r.needs_enrichment||0, ok=+r.enriched||0, tot=+r.total||0;
+    document.getElementById('kpiEnrichNeed').textContent=need;
+    document.getElementById('kpiEnrichSub').textContent=pct(need,tot)+' of runs';
+    document.getElementById('kpiEnrichOk').textContent=ok;
+    document.getElementById('kpiEnrichTotal').textContent=tot;
+  }catch(err){}
+}
+async function loadDashboard(){
+  await Promise.all([loadKpisAndFunnel(),loadDist('dashboard_coverage','coverageChart','coverageWrap',palette[2],false),loadDist('dashboard_trigger_type','triggerChart','triggerWrap',palette[3],true),loadTrend(),loadEnrichment(),loadDist('dashboard_by_industry','industryChart','industryWrap',palette[5],true),loadDist('dashboard_by_theme','themeChart','themeWrap',palette[6],true),loadDist('dashboard_by_trigger','triggerNotesChart','triggerNotesWrap',palette[3],true),loadActionFunnel(),loadWinrate(),loadChannel(),loadAttribution(),loadCorrectionRate(),loadRejections(),loadErrorTable()]);
+}
+
+/* SETTINGS */
+async function loadSettings(){
+  const s=document.getElementById('cfgStatus');
+  try{
+    const rows=await fetchView('app_config','select=key,value');
+    const map={}; rows.forEach(r=>map[r.key]=r.value);
+    document.getElementById('cfgUrl').value=map.tracking_base_url||'';
+    document.getElementById('cfgGa4').value=map.ga4_property_id||'';
+    if(s) s.textContent='';
+  }catch(err){ if(s){ s.style.color='#b42318'; s.textContent='Couldn’t load: '+(err.message||err); } }
+}
+async function patchConfig(key,value){
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/app_config?key=eq.${encodeURIComponent(key)}`,{
+    method:'PATCH',
+    headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
+    body: JSON.stringify({ value })
+  });
+  if(!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0,160)}`);
+}
+async function saveSettings(){
+  const s=document.getElementById('cfgStatus');
+  const url=document.getElementById('cfgUrl').value.trim();
+  const ga4=document.getElementById('cfgGa4').value.trim();
+  s.style.color='#8a93a3'; s.textContent='Saving…';
+  try{
+    await patchConfig('tracking_base_url', url);
+    await patchConfig('ga4_property_id', ga4);
+    s.style.color='#16a34a'; s.textContent='✓ Saved — applies on the next workflow run.';
+  }catch(err){ s.style.color='#b42318'; s.textContent='Save failed: '+(err.message||err); }
+}
+
+let activeTab='dashboard';
+function showTab(t){
+  activeTab=t;
+  ['dashboard','briefs','review','settings'].forEach(x=>{
+    document.getElementById('tab-'+x).classList.toggle('active',x===t);
+    document.getElementById('tabbtn-'+x).classList.toggle('active',x===t);
+  });
+  if(t==='settings') loadSettings();
+}
+async function refreshActive(){
+  const btn=document.getElementById('refreshBtn'); btn.disabled=true; btn.textContent='Loading…';
+  if (activeTab==='briefs') await loadBriefs();
+  else if (activeTab==='review') await loadReview();
+  else await loadDashboard();
+  btn.disabled=false; btn.textContent='Refresh';
+  document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString();
+}
+(async ()=>{ await Promise.all([loadBriefs(), loadReview(), loadDashboard()]); document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString(); })();
+</script>
+
+</body>
+</html>

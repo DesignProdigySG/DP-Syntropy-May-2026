@@ -1,0 +1,489 @@
+{
+  "name": "Brief Approval Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "brief-approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d64c299e-009e-4256-b227-33e7c39166a7",
+      "name": "Webhook (brief approve/reject)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -464,
+        192
+      ],
+      "webhookId": "7de9758d-c4d6-41a2-bbd2-dc74b2b2d54a"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fd3fc150-2944-4330-aa89-c01f3746e6a3",
+              "leftValue": "={{ $json.query.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc11ada8-f6b6-496f-bac7-0ea180804aa4",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -240,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_runs SET human_approved = true WHERE id = {{ $json.query.id }}\nRETURNING id, company, brief_s3_url, gate1_score, gate1_threshold, gate1_confidence, trigger_type, coverage_label, engaged_count, total_count, when_urgency, when_stage, raw_payload;",
+        "options": {}
+      },
+      "id": "199a3492-bb50-48d4-8e2f-180a5e8c52c1",
+      "name": "Mark Brief Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "honlamchia@gmail.com",
+        "subject": "=Brief Released — {{ $json.company }}",
+        "emailType": "text",
+        "message": "=Brief approved and released.\n\nCompany: {{ $json.company }}\nScore: {{ $json.gate1_score }}/{{ $json.gate1_threshold }}\nConfidence: {{ $json.gate1_confidence }}\nBrief: {{ $json.brief_s3_url }}",
+        "options": {}
+      },
+      "id": "b1f4627b-5a46-4016-b8a7-aca2527fd601",
+      "name": "Send Brief to Rep",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        176,
+        0
+      ],
+      "webhookId": "c28cdde7-d983-4cbb-8115-263b06d2eed3",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vKMX1dZQWsi80BVz",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recommend an action. Channel from coverage/engagement/trigger; tracking domain from app_config.\n// Also carries the WHEN engine's drafted outreach copy (outreach.action) through to the rep.\nconst cfg = $('Get Config').first().json || {};\nlet ENV_BASE_URL; try { ENV_BASE_URL = $env.TRACKING_BASE_URL; } catch (e) { ENV_BASE_URL = undefined; }\nconst baseUrl = (cfg.tracking_base_url && String(cfg.tracking_base_url).trim())\n  || ENV_BASE_URL\n  || 'https://example.com';\n\nconst item = $('Mark Brief Approved').first().json;   // pipeline_runs row\nconst account = item.company || 'unknown-account';\nconst runId   = item.id;\nconst trigger = item.trigger_type || '';\nconst cov     = (item.coverage_label || '').toUpperCase();\nconst engaged = Number(item.engaged_count || 0);\n\n// pull the WHEN engine's ready-made outreach message from the stored raw brief\nlet outreach_draft = '';\ntry {\n  const rp = typeof item.raw_payload === 'string' ? JSON.parse(item.raw_payload) : item.raw_payload;\n  outreach_draft = (rp && rp.outreach && rp.outreach.action) || (rp && rp.element_4 && rp.element_4.first_step) || '';\n} catch (e) { outreach_draft = ''; }\n\nconst CH = {\n  linkedin_post:    { metric:'page_visits',      channel:'linkedin',     medium:'social' },\n  linkedin_message: { metric:'reply_or_meeting', channel:'linkedin',     medium:'dm' },\n  email:            { metric:'reply_or_meeting', channel:'email',        medium:'outbound' },\n  content_send:     { metric:'page_visits',      channel:'email',        medium:'content' },\n  ad_retarget:      { metric:'page_visits',      channel:'linkedin_ads', medium:'paid_social' }\n};\n\nlet action_type;\nif (cov === 'BROAD') {\n  action_type = engaged >= 2 ? 'linkedin_message' : 'email';\n} else if (cov === 'PARTIAL') {\n  action_type = trigger ? 'linkedin_post' : 'content_send';\n} else if (cov === 'NARROW') {\n  action_type = trigger ? 'content_send' : 'ad_retarget';\n} else {\n  action_type = 'content_send';\n}\nconst c = CH[action_type];\n\nconst threshold = 1, window_days = 14;\nconst rand = Math.random().toString(36).slice(2,6);\nconst utm_campaign = `act-${runId}-${rand}`;\nconst sep = baseUrl.includes('?') ? '&' : '?';\nconst tracked_url = `${baseUrl}${sep}utm_source=${c.channel}&utm_medium=${c.medium}&utm_campaign=${utm_campaign}`;\nconst hypothesis = `If we run a ${action_type.replace(/_/g,' ')} for ${account}, then `\n  + `${c.metric.replace(/_/g,' ')} will increase by at least ${threshold} within ${window_days} days.`;\n\nreturn [{ json: {\n  run_id: runId, account, action_type, hypothesis, predicted_metric: c.metric,\n  predicted_direction: 'increase', threshold, window_days, utm_campaign, tracked_url,\n  status: 'recommended', outreach_draft\n}}];"
+      },
+      "id": "0ba4c543-31c6-4a0b-98a8-6611e98234b9",
+      "name": "Recommend Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "actions",
+          "cachedResultName": "actions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "account": "={{ $json.account }}",
+            "action_type": "={{ $json.action_type }}",
+            "hypothesis": "={{ $json.hypothesis }}",
+            "predicted_metric": "={{ $json.predicted_metric }}",
+            "predicted_direction": "={{ $json.predicted_direction }}",
+            "threshold": "={{ $json.threshold }}",
+            "window_days": "={{ $json.window_days }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "tracked_url": "={{ $json.tracked_url }}",
+            "status": "={{ $json.status }}",
+            "outreach_draft": "={{ $json.outreach_draft }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5d7ee377-a813-45e0-bf70-bddea65e964b",
+      "name": "Insert Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "honlamchia@gmail.com",
+        "subject": "=Approve action for {{ $json.account }}",
+        "emailType": "text",
+        "message": "=Recommended action: {{ $json.action_type }} for {{ $json.account }}\nHypothesis: {{ $json.hypothesis }}\n\nAPPROVE: https://designprodigy.app.n8n.cloud/webhook/action-approval?id={{ $json.id }}&action=approve\nREJECT: https://designprodigy.app.n8n.cloud/webhook/action-approval?id={{ $json.id }}&action=reject",
+        "options": {}
+      },
+      "id": "a789c1aa-c7f0-45e4-a57e-a8ce00b61793",
+      "name": "Action Approval Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        832,
+        0
+      ],
+      "webhookId": "f300b1ae-a972-47dd-b8a0-9ddae74ac2eb",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "vKMX1dZQWsi80BVz",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✓ Brief approved for {{ $json.account }} — action recommended and sent for approval.",
+        "options": {}
+      },
+      "id": "0b3d0548-c4bc-4962-abc1-d61fa2ef347f",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1008,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_runs SET notes = 'Brief rejected' WHERE id = {{ $json.query.id }}\nRETURNING id, company, raw_payload, (select value from app_config where key='when_engine_url') as when_engine_url;",
+        "options": {}
+      },
+      "id": "581dbf7a-d0a6-4565-bc0a-d3f704cda268",
+      "name": "Mark Brief Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        368
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✕ Brief rejected — forwarded to WHEN Engine for re-decision.",
+        "options": {}
+      },
+      "id": "3b70e17e-77f1-4484-afab-62c2d24941f4",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1024,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  max(value) filter (where key='tracking_base_url') as tracking_base_url,\n  max(value) filter (where key='ga4_property_id')  as ga4_property_id\nFROM app_config;",
+        "options": {}
+      },
+      "id": "e62961d5-779e-4ae2-b688-83b5db09d0f5",
+      "name": "Get Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        352,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nif (!brief || typeof brief !== 'object') {\n  brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.company || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n}\nbrief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\nbrief.human_signals.push({ type:'human_rejection', gate:'brief', reason:'rejected_by_human', rejected_at:new Date().toISOString(), source:'delivery_layer', run_id: row.id });\nreturn [{ json: { when_engine_url: row.when_engine_url || '', payload: brief } }];"
+      },
+      "id": "4080737e-ef2e-4d14-aa7c-93d70d575fec",
+      "name": "Build WHEN Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "u1",
+              "leftValue": "={{ $json.when_engine_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9515a8c6-378a-40b8-af22-708a76214a56",
+      "name": "Engine URL set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        416,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.when_engine_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "f55843a2-d615-48bd-94ca-fbbd26737e14",
+      "name": "Forward to WHEN Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        704,
+        368
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook (brief approve/reject)": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark Brief Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Brief Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Brief Approved": {
+      "main": [
+        [
+          {
+            "node": "Send Brief to Rep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recommend Action": {
+      "main": [
+        [
+          {
+            "node": "Insert Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Action": {
+      "main": [
+        [
+          {
+            "node": "Action Approval Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Approval Email": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Brief to Rep": {
+      "main": [
+        [
+          {
+            "node": "Get Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Config": {
+      "main": [
+        [
+          {
+            "node": "Recommend Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Brief Rejected": {
+      "main": [
+        [
+          {
+            "node": "Build WHEN Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WHEN Feedback": {
+      "main": [
+        [
+          {
+            "node": "Engine URL set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine URL set?": {
+      "main": [
+        [
+          {
+            "node": "Forward to WHEN Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to WHEN Engine": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "f82e906e-42f8-467c-acf3-170b6c81a26c",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "c6e7586b49d43eca714f71144f9f77630192013f599f492ed1613f9a7365db55"
+  },
+  "nodeGroups": [],
+  "id": "AoVkLOncTxZqQlwz",
+  "tags": []
+}

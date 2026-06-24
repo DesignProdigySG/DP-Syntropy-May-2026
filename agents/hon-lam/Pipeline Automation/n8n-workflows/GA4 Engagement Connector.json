@@ -1,0 +1,133 @@
+{
+  "name": "GA4 Engagement Connector",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 5
+            }
+          ]
+        }
+      },
+      "id": "5c689aa6-196a-4cb1-85f0-f74ceec73c6f",
+      "name": "Schedule (daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://analyticsdata.googleapis.com/v1beta/properties/542471069:runReport",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"dateRanges\": [{ \"startDate\": \"2daysAgo\", \"endDate\": \"today\" }],\n  \"dimensions\": [{ \"name\": \"sessionManualCampaignName\" }],\n  \"metrics\": [{ \"name\": \"sessions\" }]\n}",
+        "options": {}
+      },
+      "id": "a8b8537e-2d06-4958-a9c5-3efd910a0891",
+      "name": "Query GA4 (sessions by campaign)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        544,
+        -144
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "y2gRhCm6qQpZSW4d",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// GA4 runReport rows -> one item per campaign\nconst rows = ($json.rows) || [];\nreturn rows.map(r => ({ json: {\n  campaign: r.dimensionValues?.[0]?.value || '(not set)',\n  sessions: Number(r.metricValues?.[0]?.value || 0)\n}}));"
+      },
+      "id": "b990be6c-26fe-46be-ae7b-baf8dda5c74b",
+      "name": "Parse GA4 rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO engagement_events (account, source, event_type, campaign, value, occurred_at)\nVALUES (\n  (SELECT account FROM actions WHERE utm_campaign = '{{ $json.campaign }}' ORDER BY id DESC LIMIT 1),\n  'ga4', 'page_visit', '{{ $json.campaign }}', {{ $json.sessions }}, now()\n);",
+        "options": {}
+      },
+      "id": "60a5e4a8-8f35-4ee2-ba3a-770e8229225a",
+      "name": "Insert engagement event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        992,
+        -144
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "eR1uo2QGR2ZzwysA",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule (daily)": {
+      "main": [
+        [
+          {
+            "node": "Query GA4 (sessions by campaign)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query GA4 (sessions by campaign)": {
+      "main": [
+        [
+          {
+            "node": "Parse GA4 rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse GA4 rows": {
+      "main": [
+        [
+          {
+            "node": "Insert engagement event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "6fd3cda9-cb1e-4b35-8d9a-d4dfae334f0a",
+  "meta": {
+    "instanceId": "c6e7586b49d43eca714f71144f9f77630192013f599f492ed1613f9a7365db55"
+  },
+  "nodeGroups": [],
+  "id": "Y6nWWyM4SUNqUYtb",
+  "tags": []
+}
