@@ -1,8 +1,6 @@
 -- ============================================================
--- DP Syntropy — Supabase schema (pipeline + dashboard)
+--  Supabase schema (pipeline + dashboard)
 -- Project: fqsqoxsosavjhdsvfevk  (region ap-southeast-2)
--- Generated from live DB. Run against a fresh Postgres/Supabase
--- project to reproduce tables, views, and config access.
 -- ============================================================
 
 -- ---------- Core tables ----------
@@ -33,10 +31,10 @@ create table if not exists pipeline_runs (
   cap_archetype text,
   cap_confidence text,
   source text,
-  raw_payload text,          -- original WHEN-layer brief JSON (for rejection echo)
-  industry text,             -- segmentation
-  theme text,                -- segmentation
-  trigger_notes text,        -- segmentation (WHEN change_triggers.notes)
+  raw_payload text,             -- original WHEN-layer brief JSON (for rejection echo)
+  industry text,              -- segmentation
+  theme text,                 -- segmentation
+  trigger_notes text,         -- segmentation (WHEN change_triggers.notes)
   enrichment_needed boolean  -- buying group has unconfirmed contacts
 );
 
@@ -68,7 +66,7 @@ create table if not exists outcomes (
   measured_value numeric,
   baseline_value numeric,
   effect numeric,
-  result text,               -- met | not_met
+  result text,                 -- met | not_met
   source text,               -- ga4 | gmail
   window_start timestamptz,
   window_end timestamptz,
