@@ -1,4 +1,4 @@
-# DP Syntropy — B2B Lead Pipeline
+# DP B2B Lead Pipeline
 
 An intelligence-driven outreach pipeline. WHEN-layer account briefs come in, get
 turned into human-approved sales briefs and tracked outreach actions, and every
