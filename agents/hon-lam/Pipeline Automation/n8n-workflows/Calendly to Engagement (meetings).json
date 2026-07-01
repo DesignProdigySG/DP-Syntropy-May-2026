@@ -1,0 +1,14 @@
+{
+  "name": "Calendly -> Engagement (meetings)",
+  "nodes": [
+    {"id":"7528ca03-66cf-4bf9-bc12-904410041d74","name":"Calendly Webhook","type":"n8n-nodes-base.webhook","typeVersion":2.1,"position":[0,0],"parameters":{"httpMethod":"POST","path":"calendly","options":{}},"webhookId":"e7dded6a-c247-4005-a665-1ffe3f31bec3"},
+    {"id":"8a083562-ccca-4e8e-bf0e-9cb935c0ed90","name":"Map Calendly","type":"n8n-nodes-base.code","typeVersion":2,"position":[224,0],"parameters":{"jsCode":"const b=($json.body&&typeof $json.body==='object')?$json.body:$json;\nif (b.event !== 'invitee.created') return [];\nconst p=b.payload||{};\nconst campaign=(p.tracking&&p.tracking.utm_campaign)||'';\nconst contact=String(p.name||p.email||'').replace(/'/g,\"''\");\nconst occurred=(p.scheduled_event&&p.scheduled_event.start_time)||new Date().toISOString();\nreturn [{json:{campaign,contact,occurred_at:occurred}}];"}},
+    {"id":"86703d38-6bbd-4553-bc4d-f2990b6818d9","name":"Insert Meeting","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[448,0],"parameters":{"operation":"executeQuery","query":"INSERT INTO engagement_events (account, source, event_type, campaign, contact, value, occurred_at)\nSELECT COALESCE((SELECT a.account FROM actions a WHERE a.utm_campaign = '{{ $json.campaign }}' LIMIT 1), 'unknown'),\n       'calendly', 'meeting_booked', '{{ $json.campaign }}', '{{ $json.contact }}', 1, '{{ $json.occurred_at }}'::timestamptz;","options":{}}}
+  ],
+  "connections": {
+    "Calendly Webhook": {"main": [[{"node":"Map Calendly","type":"main","index":0}]]},
+    "Map Calendly": {"main": [[{"node":"Insert Meeting","type":"main","index":0}]]}
+  },
+  "settings": {"executionOrder":"v1","availableInMCP":true},
+  "meta": {"aiBuilderAssisted":true,"builderVariant":"mcp"}
+}

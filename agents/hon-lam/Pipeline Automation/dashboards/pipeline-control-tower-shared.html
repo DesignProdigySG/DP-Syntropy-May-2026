@@ -26,6 +26,10 @@
   .account { font-size:16px; font-weight:600; }
   .pill { font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; background:#eef2ff; color:#2563eb; }
   .pill.urg { background:#fef3f2; color:#b42318; }
+  .pill.ok { background:#ecfdf3; color:#16a34a; }
+  .pill.err { background:#fef3f2; color:#b42318; }
+  .acctlink { color:#2563eb; text-decoration:none; cursor:pointer; }
+  .acctlink:hover { text-decoration:underline; }
   .meta { color:#5b6472; font-size:13px; margin:8px 0; line-height:1.6; }
   .hyp { background:#f7f8fa; border-radius:8px; padding:10px 12px; font-size:13px; margin:8px 0; }
   .actions-row { display:flex; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap; }
@@ -63,9 +67,12 @@
 </div>
 
 <div class="tabs">
-  <button class="tab active" id="tabbtn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
-  <button class="tab" id="tabbtn-briefs" onclick="showTab('briefs')">Briefs <span class="badge" id="briefBadge">—</span></button>
+  <button class="tab active" id="tabbtn-briefs" onclick="showTab('briefs')">Briefs <span class="badge" id="briefBadge">—</span></button>
   <button class="tab" id="tabbtn-review" onclick="showTab('review')">Actions <span class="badge" id="reviewBadge">—</span></button>
+  <button class="tab" id="tabbtn-campaigns" onclick="showTab('campaigns')">Campaigns <span class="badge" id="campaignBadge">—</span></button>
+  <button class="tab" id="tabbtn-account360" onclick="showTab('account360')">Account 360</button>
+  <button class="tab" id="tabbtn-aidecisions" onclick="showTab('aidecisions')">AI Decisions <span class="badge" id="aiDecisionBadge">—</span></button>
+  <button class="tab" id="tabbtn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
   <button class="tab" id="tabbtn-settings" onclick="showTab('settings')">Settings</button>
 </div>
 
@@ -90,7 +97,7 @@
   </div>
 </div>
 
-<div class="tabpanel" id="tab-briefs">
+<div class="tabpanel active" id="tab-briefs">
   <div id="briefList"><div class="empty">Loading…</div></div>
 </div>
 
@@ -98,7 +105,34 @@
   <div id="list"><div class="empty">Loading…</div></div>
 </div>
 
-<div class="tabpanel active" id="tab-dashboard">
+<div class="tabpanel" id="tab-campaigns">
+  <div class="kpi-row" style="grid-template-columns:repeat(4,1fr);">
+    <div class="kpi-card"><div class="kpi-label">Active campaigns</div><div class="kpi-value" id="kpiCampActive">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Steps awaiting approval</div><div class="kpi-value" id="kpiStepsAwaiting">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Steps completed</div><div class="kpi-value" id="kpiStepsCompleted">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Steps upcoming</div><div class="kpi-value" id="kpiStepsUpcoming">—</div></div>
+  </div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>Campaigns</h2><div id="campaignTable" class="loading">Loading…</div></div>
+  <div class="panel full"><h2>Cadence steps</h2><div id="cadenceStepTable" class="loading">Loading…</div></div>
+</div>
+
+<div class="tabpanel" id="tab-account360">
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input id="acctInput" list="acctOptions" type="text" placeholder="Type or pick an account…" style="flex:1;min-width:240px;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;" onkeydown="if(event.key==='Enter') loadAccount360()">
+      <datalist id="acctOptions"></datalist>
+      <button class="approve" onclick="loadAccount360()">View account</button>
+    </div>
+  </div>
+  <div id="acct360Body"><div class="empty">Type or pick an account above to see its full history — score, campaigns, Salesforce sync, every action and AI decision, and rejections.</div></div>
+</div>
+
+<div class="tabpanel" id="tab-aidecisions">
+  <p class="subtitle" style="margin-top:0;">Every channel pick and adaptive action the system made on its own, and why — reverse-chronological.</p>
+  <div class="panel full"><div id="aiDecisionTable" class="loading">Loading…</div></div>
+</div>
+
+<div class="tabpanel" id="tab-dashboard">
   <div class="kpi-row" style="grid-template-columns:repeat(3,1fr);">
     <div class="kpi-card"><div class="kpi-label">Total runs</div><div class="kpi-value" id="kpiTotal">—</div></div>
     <div class="kpi-card"><div class="kpi-label">Brief generated</div><div class="kpi-value" id="kpiBrief">—</div><div class="kpi-sub" id="kpiBriefSub"></div></div>
@@ -143,6 +177,7 @@
   </div>
 
   <div class="panel full" style="margin-bottom:16px;"><h2>Channel performance — touches vs conversions by channel</h2><div class="chart-wrap" id="channelWrap"><canvas id="channelChart"></canvas></div></div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>AI vs. template channel picks — win rate by source</h2><div class="chart-wrap" id="channelSourceWrap"><canvas id="channelSourceChart"></canvas></div><div class="kpi-sub" id="channelSourceNote" style="margin-top:8px;"></div></div>
   <div class="panel full" style="margin-bottom:16px;"><h2>Attribution — conversions credited by campaign / source (last-touch)</h2><div class="chart-wrap" id="attribWrap"><canvas id="attribChart"></canvas></div></div>
   <div class="panel full" style="margin-bottom:16px;"><h2>Correction rate over cycles — down = the system is getting sharper</h2><div class="chart-wrap" id="correctionWrap"><canvas id="correctionChart"></canvas></div></div>
   <div class="panel full" style="margin-bottom:16px;"><h2>Rejection reasons — where feedback routes</h2><div class="chart-wrap" id="rejectWrap"><canvas id="rejectChart"></canvas></div></div>
@@ -154,8 +189,25 @@ const SUPABASE_URL = 'https://fqsqoxsosavjhdsvfevk.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_UdFXLsE_ivpVvya5fxLfvw_MfqIpsYV';
 const ACTION_WEBHOOK = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';
 const BRIEF_WEBHOOK  = 'https://designprodigy.app.n8n.cloud/webhook/brief-approval';
+const SIGN_LINK_ENDPOINT = 'https://designprodigy.app.n8n.cloud/webhook/sign-link';
 const palette = ['#2563eb','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#475569'];
 let charts = {};
+
+/* Approval-link signing — delegated to the "Sign Link" n8n workflow so the
+   signing secret never lives in this static, publicly-viewable file. */
+async function signLink(scope, id, action){
+  const res = await fetch(SIGN_LINK_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, id, action })
+  });
+  if(!res.ok) throw new Error('Failed to sign link ('+res.status+')');
+  const data = await res.json();
+  return data.sig;
+}
+async function signedUrl(base, scope, id, action){
+  return `${base}?id=${encodeURIComponent(id)}&action=${action}&sig=${await signLink(scope, id, action)}`;
+}
 
 async function fetchView(view, query) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${view}?${query||'select=*'}`, {
@@ -168,21 +220,101 @@ function esc(s){ return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;'
 function pct(n,d){ return !d ? '0%' : Math.round((n/d)*100)+'%'; }
 function showError(id,err){ const e=document.getElementById(id); if(e) e.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
 function makeChart(id,cfg){ if(charts[id]) charts[id].destroy(); charts[id]=new Chart(document.getElementById(id),cfg); }
+function acctLink(name){ return `<a class="acctlink" href="#" onclick="openAccount360('${esc(name)}');return false;">${esc(name)}</a>`; }
+function dtLabel(t){ return t==='channel_reco'?'Channel pick (AI)':t==='adaptive'?'Adaptive action':t==='campaign_completion'?'Campaign outcome':(t||'—'); }
+function sfPill(status){
+  if(status==='synced') return '<span class="pill ok">Synced ✓</span>';
+  if(status==='error') return '<span class="pill err">Sync error</span>';
+  if(status==='skipped') return '<span class="pill">Sync skipped</span>';
+  return '<span class="pill">Sync pending</span>';
+}
+function oppPill(status){
+  // Opportunity creation: gated behind a human-approved email link (Opportunity
+  // Offer / Opportunity Approval Handler workflows), triggered off a campaign
+  // hitting completion_reason='goal_met'. Read-only here by design — no dashboard
+  // write path; the offer/approve/decline flow lives entirely in the email link.
+  if(status==='created') return '<span class="pill ok">Opportunity created ✓</span>';
+  if(status==='offered') return '<span class="pill urg">Opportunity offered ✉</span>';
+  if(status==='declined') return '<span class="pill">Opportunity declined</span>';
+  if(status==='error') return '<span class="pill err">Opportunity error</span>';
+  return ''; // not_offered — nothing to show, keeps the row uncluttered
+}
+// Item 3 (Salesforce Campaign Status write-back): the live SF Status value isn't
+// stored anywhere — the Adaptive Decision Engine writes it straight to Salesforce.
+// Mirror its mapping client-side so the dashboard shows what SF should currently read:
+// status='completed' + completion_reason='goal_met' -> Completed; any other completed
+// reason -> Aborted; otherwise still In Progress (matches Adaptive Decision Engine's
+// 'Decide Adaptive Action' node, n8n workflow tGYW1gMBXQrC3bQ6).
+function sfStatusPill(c){
+  if(c.status==='completed'){
+    return c.completion_reason==='goal_met'
+      ? '<span class="pill ok">SF Status: Completed</span>'
+      : '<span class="pill err">SF Status: Aborted</span>';
+  }
+  return '<span class="pill">SF Status: In Progress</span>';
+}
+// Item 1 (template-selection audit trail): campaigns.template_match_trace is a JSON
+// string recorded at brief-approval time noting every campaign_templates row that
+// matched the brief and why the winner won (see Brief Approval Handler's
+// "Build Template Match Trace" node). Render its reason/runner-ups inline.
+function templateTraceNote(c){
+  if(!c.template_match_trace) return '';
+  let t; try{ t = JSON.parse(c.template_match_trace); }catch(e){ return ''; }
+  if(!t || !t.matched_count) return '';
+  const runnerUps = (t.runner_ups||[]).map(r=>esc(r.name)+' (p'+r.priority+')').join(', ');
+  return ` · ${esc(t.reason||('matched '+t.matched_count+' template(s)'))}${runnerUps?(' — also matched: '+runnerUps):''}`;
+}
 
 /* BRIEFS */
-function decideBrief(id, action){
-  window.open(`${BRIEF_WEBHOOK}?id=${encodeURIComponent(id)}&action=${action}`, '_blank');
-  setTimeout(loadBriefs, 1500);
+/* Fire the signed approve/reject webhook invisibly and let the next list
+   reload be the proof it worked — if the brief is gone, it succeeded; if the
+   card is still there, the user can just retry.
+   This used to navigate a hidden iframe to the webhook URL, but browsers
+   increasingly treat invisible cross-origin iframe navigations (no user
+   gesture, zero-size, never attached visibly) as tracking/clickjacking-style
+   pixels and silently drop the actual network request — the iframe's onload
+   still fires regardless (it's the frame's own load lifecycle, not the real
+   network outcome), so the old code looked like it worked even when the GET
+   never left the browser. A plain no-cors fetch is a normal page-script
+   network call, not a frame navigation, so it isn't subject to that
+   heuristic — confirmed directly against a live n8n execution that the
+   webhook endpoint itself responds correctly when hit externally. */
+function fireWebhook(url){
+  return fetch(url, { method:'GET', mode:'no-cors', credentials:'omit', cache:'no-store', keepalive:true })
+    .catch(()=>{}); // response is opaque under no-cors either way; the list reload is the real signal
+}
+async function decideBrief(id, url, action){
+  const approveBtn = document.getElementById(`brief-approve-${id}`);
+  const rejectBtn = document.getElementById(`brief-reject-${id}`);
+  const status = document.getElementById(`brief-status-${id}`);
+  if(approveBtn) approveBtn.disabled = true;
+  if(rejectBtn) rejectBtn.disabled = true;
+  if(status){ status.style.color='#8a93a3'; status.textContent = action==='approve' ? 'Approving…' : 'Rejecting…'; }
+  // Don't await the webhook call itself — the n8n workflow it triggers (template
+  // selection, channel-rec AI call, Salesforce writes on approve, etc.) can run
+  // well past 10s, and there's no reason to freeze the UI for all of that.
+  // fireWebhook() uses fetch keepalive, so the request finishes in the
+  // background regardless. Give Supabase a short, fixed window to catch up
+  // before refreshing the list; if it's not done yet the "Still processing"
+  // fallback below covers it and a manual Refresh will pick it up.
+  fireWebhook(url);
+  await new Promise(r=>setTimeout(r,800));
+  await loadBriefs();
+  if(document.getElementById(`brief-${id}`)){
+    const stillThere = document.getElementById(`brief-status-${id}`);
+    if(stillThere){ stillThere.style.color='#b42318'; stillThere.textContent='Still processing — click Refresh in a moment.'; }
+  }
 }
 function briefCard(r){
   const urg = r.when_urgency ? `<span class="pill urg">${esc(r.when_urgency)}</span>` : '';
   const link = r.brief_s3_url ? `<a class="brief" href="${esc(r.brief_s3_url)}" target="_blank">View brief ↗</a>` : '';
-  return `<div class="card">
-    <div class="card-head"><span class="account">${esc(r.company)}</span><span>${urg}<span class="pill">brief</span></span></div>
-    <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; ${esc(r.run_sgt||'')} &nbsp;·&nbsp; ${link}</div>
+  return `<div class="card" id="brief-${r.id}">
+    <div class="card-head"><span class="account">${acctLink(r.company)}</span><span>${urg}<span class="pill">brief</span></span></div>
+    <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; Submitted: ${esc(r.run_sgt||'—')} &nbsp;·&nbsp; ${link}</div>
     <div class="actions-row">
-      <button class="approve" onclick="decideBrief(${r.id},'approve')">✓ Approve brief</button>
-      <button class="reject" onclick="decideBrief(${r.id},'reject')">✕ Reject</button>
+      <button class="approve" id="brief-approve-${r.id}" onclick="decideBrief(${r.id}, '${esc(r.approveUrl)}', 'approve')">✓ Approve brief</button>
+      <button class="reject" id="brief-reject-${r.id}" onclick="decideBrief(${r.id}, '${esc(r.rejectUrl)}', 'reject')">✕ Reject</button>
+      <span class="kpi-sub" id="brief-status-${r.id}"></span>
     </div></div>`;
 }
 async function loadBriefs(){
@@ -190,33 +322,58 @@ async function loadBriefs(){
   try{
     const rows=await fetchView('console_pending_briefs');
     document.getElementById('briefBadge').textContent=rows.length;
+    await Promise.all(rows.map(async r=>{
+      r.approveUrl = await signedUrl(BRIEF_WEBHOOK,'brief',r.id,'approve');
+      r.rejectUrl  = await signedUrl(BRIEF_WEBHOOK,'brief',r.id,'reject');
+    }));
     list.innerHTML = rows.length ? rows.map(briefCard).join('') : '<div class="empty">🎉 No briefs awaiting approval.</div>';
   }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
 }
 
 /* ACTIONS */
 const REASONS = [
-  { v:'stale_fact', label:'Stale fact (→ Tabita)' },
-  { v:'wrong_timing', label:'Wrong timing (→ engine)' },
-  { v:'wrong_approach', label:'Wrong approach (→ engine)' }
+  { v:'stale_fact', label:'Information was out of date' },
+  { v:'wrong_contact', label:'Wrong contact for this account' },
+  { v:'incorrect_information', label:'Brief had incorrect information' },
+  { v:'wrong_timing', label:'Bad timing for this outreach' },
+  { v:'wrong_approach', label:'Wrong approach/strategy' },
+  { v:'wrong_channel', label:'Wrong channel for this contact' }
 ];
-function decide(id, action, reason) {
-  let url = `${ACTION_WEBHOOK}?id=${encodeURIComponent(id)}&action=${action}`;
-  if (reason) url += `&reason=${encodeURIComponent(reason)}`;
-  window.open(url, '_blank'); setTimeout(loadReview, 1500);
+async function decide(id, url, action, reason) {
+  let finalUrl = url;
+  if (reason) finalUrl += `&reason=${encodeURIComponent(reason)}`;
+  const approveBtn = document.getElementById(`action-approve-${id}`);
+  const rejectBtn = document.getElementById(`action-reject-${id}`);
+  const select = document.getElementById(`reason-${id}`);
+  const status = document.getElementById(`action-status-${id}`);
+  if(approveBtn) approveBtn.disabled = true;
+  if(rejectBtn) rejectBtn.disabled = true;
+  if(select) select.disabled = true;
+  if(status){ status.style.color='#8a93a3'; status.textContent = action==='approve' ? 'Approving…' : 'Rejecting…'; }
+  // Same as decideBrief(): fire the webhook in the background rather than
+  // waiting on its full response, then give Supabase a short fixed window to
+  // catch up before refreshing.
+  fireWebhook(finalUrl);
+  await new Promise(r=>setTimeout(r,800));
+  await loadReview();
+  if(document.getElementById(`action-${id}`)){
+    const stillThere = document.getElementById(`action-status-${id}`);
+    if(stillThere){ stillThere.style.color='#b42318'; stillThere.textContent='Still processing — click Refresh in a moment.'; }
+  }
 }
 function card(r){
   const opts = REASONS.map(x=>`<option value="${x.v}">${x.label}</option>`).join('');
   const urg = r.when_urgency ? `<span class="pill urg">${esc(r.when_urgency)}</span>` : '';
   const brief = r.brief_s3_url ? `<a class="brief" href="${esc(r.brief_s3_url)}" target="_blank">View brief ↗</a>` : '';
-  return `<div class="card">
-    <div class="card-head"><span class="account">${esc(r.account)}</span><span>${urg}<span class="pill">${esc(r.action_type)}</span></span></div>
-    <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; Metric: ${esc(r.predicted_metric||'—')} &nbsp;·&nbsp; ${brief}</div>
+  return `<div class="card" id="action-${r.id}">
+    <div class="card-head"><span class="account">${acctLink(r.account)}</span><span>${urg}<span class="pill">${esc(r.action_type)}</span></span></div>
+    <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; Created: ${esc(r.created_sgt||'—')} &nbsp;·&nbsp; Metric: ${esc(r.predicted_metric||'—')} &nbsp;·&nbsp; ${brief}</div>
     <div class="hyp">${esc(r.hypothesis)}</div>
     <div class="actions-row">
-      <button class="approve" onclick="decide(${r.id},'approve')">✓ Approve</button>
+      <button class="approve" id="action-approve-${r.id}" onclick="decide(${r.id}, '${esc(r.approveUrl)}', 'approve')">✓ Approve</button>
       <select id="reason-${r.id}">${opts}</select>
-      <button class="reject" onclick="decide(${r.id},'reject',document.getElementById('reason-${r.id}').value)">✕ Reject</button>
+      <button class="reject" id="action-reject-${r.id}" onclick="decide(${r.id}, '${esc(r.rejectUrl)}', 'reject', document.getElementById('reason-${r.id}').value)">✕ Reject</button>
+      <span class="kpi-sub" id="action-status-${r.id}"></span>
     </div></div>`;
 }
 async function loadReview(){
@@ -224,8 +381,154 @@ async function loadReview(){
   try{
     const rows=await fetchView('console_pending_actions');
     document.getElementById('reviewBadge').textContent=rows.length;
+    await Promise.all(rows.map(async r=>{
+      r.approveUrl = await signedUrl(ACTION_WEBHOOK,'action',r.id,'approve');
+      r.rejectUrl  = await signedUrl(ACTION_WEBHOOK,'action',r.id,'reject');
+    }));
     list.innerHTML = rows.length ? rows.map(card).join('') : '<div class="empty">🎉 Nothing pending — all caught up.</div>';
   }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+
+/* CAMPAIGNS */
+async function loadCampaigns(){
+  try{
+    const camps = await fetchView('dashboard_campaigns');
+    const steps = await fetchView('dashboard_cadence_steps');
+    const active = camps.filter(c=>c.status==='active').length;
+    let awaiting=0, completed=0, upcoming=0;
+    camps.forEach(c=>{ awaiting+=+c.awaiting_approval_steps||0; completed+=+c.completed_steps||0; upcoming+=+c.upcoming_steps||0; });
+    document.getElementById('campaignBadge').textContent=active;
+    document.getElementById('kpiCampActive').textContent=active;
+    document.getElementById('kpiStepsAwaiting').textContent=awaiting;
+    document.getElementById('kpiStepsCompleted').textContent=completed;
+    document.getElementById('kpiStepsUpcoming').textContent=upcoming;
+
+    document.getElementById('campaignTable').innerHTML='';
+    new gridjs.Grid({
+      columns:[{name:'Account',formatter:cell=>gridjs.html(acctLink(cell))},'Run','Status','Created','Total','Completed','Awaiting','Upcoming','Cancelled','Next step due'],
+      data: camps.map(c=>[c.account, c.run_id, c.status, c.created_sgt,
+        +c.total_steps||0, +c.completed_steps||0, +c.awaiting_approval_steps||0, +c.upcoming_steps||0, +c.cancelled_steps||0,
+        c.next_step_due ? new Date(c.next_step_due).toLocaleString() : '—']),
+      search:true, sort:true, pagination:{limit:8}
+    }).render(document.getElementById('campaignTable'));
+
+    document.getElementById('cadenceStepTable').innerHTML='';
+    new gridjs.Grid({
+      // Channel/Why: Phase 5 channel recommendation AI — 'ai' when the LLM's
+      // channel plan was used, 'template' on fallback to the matched
+      // campaign_templates row (see supabase/schema.sql, cadence_steps).
+      // Adaptive/Adaptive reason: Phase 4 adaptive decision engine — set once
+      // an outcome is measured (escalated/paused/stopped/reviewed), null
+      // until then.
+      columns:[{name:'Account',formatter:cell=>gridjs.html(acctLink(cell))},'Step #','Delay (d)','Scheduled','Action type','Target','Status','Channel','Why','Adaptive','Adaptive reason'],
+      data: steps.map(s=>[s.account, s.step_number, s.delay_days, s.scheduled_sgt||'—', s.action_type||'—', s.target||'—', s.status,
+        s.channel_source==='ai' ? 'AI' : 'Template', s.channel_reco_reason||'—', s.adaptive_action||'—', s.adaptive_reason||'—']),
+      search:true, sort:true, pagination:{limit:10}
+    }).render(document.getElementById('cadenceStepTable'));
+  }catch(err){ showError('campaignTable',err); showError('cadenceStepTable',err); }
+}
+
+/* ACCOUNT 360 + AI DECISIONS — surfaces dashboard_accounts_list / dashboard_account_actions
+   / dashboard_ai_decisions (added 2026-06-30; channel_reco_reason + adaptive_reason existed
+   in the DB since Phase 4/5 but had no UI before this). */
+async function loadAccountPicker(){
+  try{
+    const rows = await fetchView('dashboard_accounts_list');
+    document.getElementById('acctOptions').innerHTML = rows.map(r=>`<option value="${esc(r.account)}">`).join('');
+  }catch(err){ /* picker is a convenience; failing silently still lets free-text entry work */ }
+}
+function openAccount360(account){
+  showTab('account360');
+  document.getElementById('acctInput').value = account;
+  loadAccount360(account);
+}
+async function loadAccount360(account){
+  account = (account || document.getElementById('acctInput').value || '').trim();
+  const body = document.getElementById('acct360Body');
+  if(!account){ body.innerHTML = '<div class="empty">Type or pick an account above to see its full history.</div>'; return; }
+  body.innerHTML = '<div class="loading">Loading…</div>';
+  try{
+    const enc = encodeURIComponent(account);
+    const [scoreRows, actions, decisions, engagement, campaigns] = await Promise.all([
+      fetchView('account_score', `account=eq.${enc}`),
+      fetchView('dashboard_account_actions', `account=eq.${enc}&order=created_at.desc`),
+      fetchView('dashboard_ai_decisions', `account=eq.${enc}&order=decided_at.desc`),
+      fetchView('console_recent_engagement', `account=eq.${enc}&order=ingested_at.desc&limit=50`),
+      fetchView('dashboard_campaigns', `account=eq.${enc}`)
+    ]);
+    const score = scoreRows[0] || {};
+    const rejections = actions.filter(a=>a.status==='cancelled');
+
+    body.innerHTML = `
+      <div class="kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+        <div class="kpi-card"><div class="kpi-label">Account score</div><div class="kpi-value">${score.score ?? '—'}</div><div class="kpi-sub">${(score.hard_points!=null||score.soft_points!=null) ? `Hard: ${score.hard_points??0} · Soft: ${score.soft_points??0}` : ''}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Engagement events</div><div class="kpi-value">${score.engagement_events ?? 0}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Last activity</div><div class="kpi-value" style="font-size:15px;">${score.last_event ? new Date(score.last_event).toLocaleDateString() : '—'}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Active campaigns</div><div class="kpi-value">${campaigns.filter(c=>c.status==='active').length}</div></div>
+      </div>
+      <div class="panel full" style="margin-bottom:16px;">
+        <h2>Campaigns &amp; Salesforce sync</h2>
+        ${campaigns.length ? campaigns.map(c=>`<div class="meta">
+            <strong>${esc(c.template_key||'campaign')}</strong> · ${esc(c.status)} · ${+c.total_steps||0} steps (${+c.completed_steps||0} done) ·
+            ${sfPill(c.salesforce_sync_status)} ${sfStatusPill(c)}${c.salesforce_sync_error?(' · '+esc(c.salesforce_sync_error)):''}${c.completion_reason?(' · ended: '+esc(c.completion_reason)):''}${oppPill(c.opportunity_status)?(' · '+oppPill(c.opportunity_status)):''}${c.opportunity_error?(' · '+esc(c.opportunity_error)):''}${templateTraceNote(c)}
+          </div>`).join('') : '<div class="meta">No campaigns for this account.</div>'}
+      </div>
+      <div class="panel full" style="margin-bottom:16px;"><h2>AI reasoning for this account</h2><div id="acct360Decisions"></div></div>
+      <div class="panel full" style="margin-bottom:16px;"><h2>Action &amp; outcome history</h2><div id="acct360Actions"></div></div>
+      <div class="panel full" style="margin-bottom:16px;"><h2>Rejection history</h2><div id="acct360Rejections"></div></div>
+      <div class="panel full"><h2>Engagement timeline</h2><div id="acct360Engagement"></div></div>
+    `;
+
+    const decisionsEl = document.getElementById('acct360Decisions');
+    if(decisions.length){
+      new gridjs.Grid({
+        columns:['When','Type','Action type','Detail','Reason'],
+        data: decisions.map(d=>[d.decided_at?new Date(d.decided_at).toLocaleString():'—', dtLabel(d.decision_type), d.action_type||'—', d.decision_label||'—', d.reason||'—']),
+        search:true, sort:true, pagination:{limit:6}
+      }).render(decisionsEl);
+    } else decisionsEl.innerHTML = '<div class="empty">No AI channel picks or adaptive actions recorded yet for this account.</div>';
+
+    const actionsEl = document.getElementById('acct360Actions');
+    if(actions.length){
+      new gridjs.Grid({
+        columns:['When','Action type','Status','Channel','Target','Outcome','Reason'],
+        data: actions.map(a=>[a.created_at?new Date(a.created_at).toLocaleString():'—', a.action_type||'—', a.status, a.channel_source==='ai'?'AI':'Template', a.target||'—', a.outcome_result||'—', a.reason||a.hypothesis||'—']),
+        search:true, sort:true, pagination:{limit:8}
+      }).render(actionsEl);
+    } else actionsEl.innerHTML = '<div class="empty">No actions recorded yet for this account.</div>';
+
+    const rejEl = document.getElementById('acct360Rejections');
+    if(rejections.length){
+      new gridjs.Grid({
+        columns:['When','Action type','Reason','Routed to'],
+        data: rejections.map(a=>[a.decided_at?new Date(a.decided_at).toLocaleString():'—', a.action_type||'—', a.rejection_reason||'—', a.rejection_routed_to||'—']),
+        search:true, sort:true, pagination:{limit:6}
+      }).render(rejEl);
+    } else rejEl.innerHTML = '<div class="empty">No rejections for this account.</div>';
+
+    const engEl = document.getElementById('acct360Engagement');
+    if(engagement.length){
+      new gridjs.Grid({
+        columns:['When','Event','Source','Campaign','Value'],
+        data: engagement.map(e=>[e.occurred_at?new Date(e.occurred_at).toLocaleString():(e.ingested_at?new Date(e.ingested_at).toLocaleString():'—'), e.event_type||'—', e.source||'—', e.campaign||'—', e.value ?? '—']),
+        search:true, sort:true, pagination:{limit:8}
+      }).render(engEl);
+    } else engEl.innerHTML = '<div class="empty">No engagement events recorded yet for this account.</div>';
+  }catch(err){ body.innerHTML = '<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+async function loadAiDecisions(){
+  try{
+    const rows = await fetchView('dashboard_ai_decisions', 'order=decided_at.desc&limit=200');
+    document.getElementById('aiDecisionBadge').textContent = rows.length;
+    const el = document.getElementById('aiDecisionTable');
+    if(!rows.length){ el.innerHTML = '<div class="empty">No AI channel picks or adaptive actions yet — these populate once campaigns and outcomes start flowing.</div>'; return; }
+    el.innerHTML='';
+    new gridjs.Grid({
+      columns:[{name:'Account',formatter:cell=>gridjs.html(acctLink(cell))},'When','Type','Action type','Detail','Reason'],
+      data: rows.map(r=>[r.account, r.decided_at?new Date(r.decided_at).toLocaleString():'—', dtLabel(r.decision_type), r.action_type||'—', r.decision_label||'—', r.reason||'—']),
+      search:true, sort:true, pagination:{limit:12}
+    }).render(el);
+  }catch(err){ showError('aiDecisionTable',err); }
 }
 
 /* DASHBOARD */
@@ -276,6 +579,19 @@ async function loadChannel(){
     makeChart('channelChart',{type:'bar',data:{labels:rows.map(r=>r.channel),datasets:[{label:'Touches',data:rows.map(r=>+r.touches),backgroundColor:palette[1]},{label:'Conversions',data:rows.map(r=>+r.conversions),backgroundColor:palette[2]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
   }catch(err){ showError('channelWrap',err); }
 }
+async function loadChannelSource(){
+  try{
+    // Phase 5 follow-up (2026-06-29): did the AI's channel picks actually
+    // outperform the campaign-template fallback? Expect thin/empty bars
+    // until enough actions reach executed/measured to be meaningful.
+    const rows=await fetchView('dashboard_channel_source_performance');
+    const order={ai:0,template:1}; rows.sort((a,b)=>(order[a.channel_source]??2)-(order[b.channel_source]??2));
+    const label=s=>s==='ai'?'AI-recommended':(s==='template'?'Template fallback':(s||'—'));
+    makeChart('channelSourceChart',{type:'bar',data:{labels:rows.map(r=>label(r.channel_source)),datasets:[{label:'Met',data:rows.map(r=>+r.met||0),backgroundColor:palette[2]},{label:'Measured',data:rows.map(r=>+r.measured||0),backgroundColor:palette[6]},{label:'Executed',data:rows.map(r=>+r.executed||0),backgroundColor:palette[1]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+    const tt=rows.reduce((s,r)=>s+(+r.measured||0),0);
+    document.getElementById('channelSourceNote').textContent = tt===0 ? 'No outcomes measured yet for either source — too early to compare.' : '';
+  }catch(err){ showError('channelSourceWrap',err); }
+}
 async function loadAttribution(){
   try{
     const rows=await fetchView('dashboard_attribution_summary'); rows.sort((a,b)=>b.conversions-a.conversions);
@@ -314,7 +630,7 @@ async function loadEnrichment(){
   }catch(err){}
 }
 async function loadDashboard(){
-  await Promise.all([loadKpisAndFunnel(),loadDist('dashboard_coverage','coverageChart','coverageWrap',palette[2],false),loadDist('dashboard_trigger_type','triggerChart','triggerWrap',palette[3],true),loadTrend(),loadEnrichment(),loadDist('dashboard_by_industry','industryChart','industryWrap',palette[5],true),loadDist('dashboard_by_theme','themeChart','themeWrap',palette[6],true),loadDist('dashboard_by_trigger','triggerNotesChart','triggerNotesWrap',palette[3],true),loadActionFunnel(),loadWinrate(),loadChannel(),loadAttribution(),loadCorrectionRate(),loadRejections(),loadErrorTable()]);
+  await Promise.all([loadKpisAndFunnel(),loadDist('dashboard_coverage','coverageChart','coverageWrap',palette[2],false),loadDist('dashboard_trigger_type','triggerChart','triggerWrap',palette[3],true),loadTrend(),loadEnrichment(),loadDist('dashboard_by_industry','industryChart','industryWrap',palette[5],true),loadDist('dashboard_by_theme','themeChart','themeWrap',palette[6],true),loadDist('dashboard_by_trigger','triggerNotesChart','triggerNotesWrap',palette[3],true),loadActionFunnel(),loadWinrate(),loadChannel(),loadChannelSource(),loadAttribution(),loadCorrectionRate(),loadRejections(),loadErrorTable()]);
 }
 
 /* SETTINGS */
@@ -348,24 +664,28 @@ async function saveSettings(){
   }catch(err){ s.style.color='#b42318'; s.textContent='Save failed: '+(err.message||err); }
 }
 
-let activeTab='dashboard';
+let activeTab='briefs';
 function showTab(t){
   activeTab=t;
-  ['dashboard','briefs','review','settings'].forEach(x=>{
+  ['dashboard','briefs','review','campaigns','account360','aidecisions','settings'].forEach(x=>{
     document.getElementById('tab-'+x).classList.toggle('active',x===t);
     document.getElementById('tabbtn-'+x).classList.toggle('active',x===t);
   });
   if(t==='settings') loadSettings();
+  if(t==='account360' && !document.getElementById('acctOptions').childElementCount) loadAccountPicker();
 }
 async function refreshActive(){
   const btn=document.getElementById('refreshBtn'); btn.disabled=true; btn.textContent='Loading…';
   if (activeTab==='briefs') await loadBriefs();
   else if (activeTab==='review') await loadReview();
+  else if (activeTab==='campaigns') await loadCampaigns();
+  else if (activeTab==='account360') await loadAccount360();
+  else if (activeTab==='aidecisions') await loadAiDecisions();
   else await loadDashboard();
   btn.disabled=false; btn.textContent='Refresh';
   document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString();
 }
-(async ()=>{ await Promise.all([loadBriefs(), loadReview(), loadDashboard()]); document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString(); })();
+(async ()=>{ await Promise.all([loadBriefs(), loadReview(), loadCampaigns(), loadDashboard(), loadAccountPicker(), loadAiDecisions()]); document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString(); })();
 </script>
 
 </body>

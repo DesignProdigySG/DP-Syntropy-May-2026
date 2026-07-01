@@ -1,0 +1,19 @@
+{
+  "name": "Sign Link",
+  "nodes": [
+    {"id":"760eac30-9dfa-4019-98c1-50fded6eb945","name":"Webhook (sign link)","type":"n8n-nodes-base.webhook","typeVersion":2.1,"position":[0,96],"parameters":{"httpMethod":"POST","path":"sign-link","responseMode":"responseNode","options":{}},"webhookId":"ecd98c78-31a5-458d-8e49-d6730422bad8"},
+    {"id":"17046aca-cd3f-4908-a4aa-2e7bed1015aa","name":"Get HMAC Secret","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[224,96],"parameters":{"operation":"executeQuery","query":"select value from app_config where key='approval_hmac_secret';","options":{}}},
+    {"id":"21b8570e-caaf-4785-942f-b003002fc85c","name":"Build Signature","type":"n8n-nodes-base.code","typeVersion":2,"position":[448,96],"parameters":{"mode":"runOnceForAllItems","language":"javaScript","jsCode":"const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nconst body = ($('Webhook (sign link)').first().json.body) || {};\nconst scope = body.scope;\nconst id = body.id;\nconst action = body.action;\nconst scopeOk = ['brief','action','opportunity'].includes(scope);\nconst idOk = (typeof id === 'string' || typeof id === 'number') && /^[0-9]+$/.test(String(id));\nconst actionOk = action === 'approve' || action === 'reject';\nconst valid = scopeOk && idOk && actionOk;\nlet sig = null;\nif (valid) {\n  sig = crypto.createHmac('sha256', SECRET).update(`${scope}:${id}:${action}`).digest('hex').slice(0, 32);\n}\nreturn [{ json: { valid, sig, scope: scopeOk ? scope : '', id: idOk ? String(id) : '', action: actionOk ? action : '' } }];"}},
+    {"id":"10fbc03f-713e-4aab-bcdf-e3b473958ffe","name":"Valid?","type":"n8n-nodes-base.if","typeVersion":2.2,"position":[672,96],"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict"},"conditions":[{"leftValue":"={{ $json.valid }}","operator":{"type":"boolean","operation":"true"},"rightValue":true}],"combinator":"and"}}},
+    {"id":"93292a76-3a3a-4e6d-bd63-107009ad63c3","name":"Respond Signature","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[896,0],"parameters":{"respondWith":"json","responseBody":"={{ { sig: $json.sig, scope: $json.scope, id: $json.id, action: $json.action } }}","options":{}}},
+    {"id":"d99b8855-f5a6-44da-93b5-bdab062a6452","name":"Respond Invalid Request","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[896,192],"parameters":{"respondWith":"json","responseBody":"{\"error\":\"invalid scope, id, or action\"}","options":{"responseCode":400}}}
+  ],
+  "connections": {
+    "Webhook (sign link)": {"main": [[{"node":"Get HMAC Secret","type":"main","index":0}]]},
+    "Get HMAC Secret": {"main": [[{"node":"Build Signature","type":"main","index":0}]]},
+    "Build Signature": {"main": [[{"node":"Valid?","type":"main","index":0}]]},
+    "Valid?": {"main": [[{"node":"Respond Signature","type":"main","index":0}],[{"node":"Respond Invalid Request","type":"main","index":0}]]}
+  },
+  "settings": {"executionOrder":"v1","availableInMCP":true},
+  "meta": {"aiBuilderAssisted":true,"builderVariant":"mcp"}
+}

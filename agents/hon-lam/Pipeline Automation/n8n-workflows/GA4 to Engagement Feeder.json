@@ -1,0 +1,20 @@
+{
+  "name": "GA4 -> Engagement Feeder",
+  "nodes": [
+    {"id":"90bff4c3-7bee-4ebb-aab4-da02d1fecda9","name":"Daily 5am","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0],"parameters":{"rule":{"interval":[{"triggerAtHour":5}]}}},
+    {"id":"30238ee0-e4ab-40e6-949d-1f0edeef221f","name":"Get Config","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[224,96],"parameters":{"operation":"executeQuery","query":"SELECT max(value) filter (where key='ga4_property_id') as ga4_property_id FROM app_config;","options":{}}},
+    {"id":"cfd02dce-3b2b-43b1-a5c5-f74b9d6354fa","name":"Query GA4","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[448,96],"parameters":{"method":"POST","url":"=https://analyticsdata.googleapis.com/v1beta/properties/{{ $('Get Config').first().json.ga4_property_id || '542471069' }}:runReport","authentication":"predefinedCredentialType","nodeCredentialType":"googleApi","sendBody":true,"specifyBody":"json","jsonBody":"{\n  \"dateRanges\":[{\"startDate\":\"3daysAgo\",\"endDate\":\"yesterday\"}],\n  \"dimensions\":[{\"name\":\"sessionManualCampaignName\"},{\"name\":\"date\"}],\n  \"metrics\":[{\"name\":\"sessions\"}]\n}","options":{}}},
+    {"id":"4f21a5b4-9866-4279-850d-efb0169e3ad2","name":"Map GA4","type":"n8n-nodes-base.code","typeVersion":2,"position":[672,96],"parameters":{"jsCode":"const rows=($json.rows||[]);\nreturn rows.map(r=>{\n  const campaign=(r.dimensionValues&&r.dimensionValues[0]&&r.dimensionValues[0].value)||'';\n  const d=(r.dimensionValues&&r.dimensionValues[1]&&r.dimensionValues[1].value)||'';\n  const sessions=Number((r.metricValues&&r.metricValues[0]&&r.metricValues[0].value)||0);\n  const date=d.length===8?(d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8)):null;\n  return {json:{campaign,date,sessions}};\n}).filter(x=>x.json.campaign && x.json.campaign!=='(not set)' && x.json.date && x.json.sessions>0);"}},
+    {"id":"5357b006-6c4c-4df1-9b53-f0328a602dff","name":"Insert Visits","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[896,96],"parameters":{"operation":"executeQuery","query":"INSERT INTO engagement_events (account, source, event_type, campaign, value, occurred_at)\nSELECT a.account, 'ga4', 'page_visit', '{{ $json.campaign }}', {{ $json.sessions }}, '{{ $json.date }}'::timestamptz\nFROM actions a\nWHERE a.utm_campaign = '{{ $json.campaign }}'\n  AND NOT EXISTS (SELECT 1 FROM engagement_events e WHERE e.campaign = '{{ $json.campaign }}' AND e.event_type='page_visit' AND e.occurred_at::date = '{{ $json.date }}'::date)\nLIMIT 1;","options":{}}},
+    {"id":"c55f2d25-38d5-48e0-bf45-5d72b31717bb","name":"Run now","type":"n8n-nodes-base.manualTrigger","typeVersion":1,"position":[0,192],"parameters":{}}
+  ],
+  "connections": {
+    "Daily 5am": {"main": [[{"node":"Get Config","type":"main","index":0}]]},
+    "Get Config": {"main": [[{"node":"Query GA4","type":"main","index":0}]]},
+    "Query GA4": {"main": [[{"node":"Map GA4","type":"main","index":0}]]},
+    "Map GA4": {"main": [[{"node":"Insert Visits","type":"main","index":0}]]},
+    "Run now": {"main": [[{"node":"Get Config","type":"main","index":0}]]}
+  },
+  "settings": {"executionOrder":"v1","availableInMCP":true},
+  "meta": {"aiBuilderAssisted":true,"builderVariant":"mcp"}
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Engagement Ingest",
+  "nodes": [
+    {"id":"b6ed2d81-106a-40ef-b11b-027394ff9e3a","name":"Webhook","type":"n8n-nodes-base.webhook","typeVersion":2.1,"position":[0,0],"parameters":{"httpMethod":"POST","path":"engagement","options":{}},"webhookId":"63d9b6b3-631a-420c-9133-260ba511ac62"},
+    {"id":"a30b9bf1-1595-46a4-8dc6-63c252b003fe","name":"Normalize","type":"n8n-nodes-base.code","typeVersion":2,"position":[224,0],"parameters":{"jsCode":"const b = ($json.body && typeof $json.body==='object') ? $json.body : $json;\nreturn [{ json: {\n  account: b.account || null,\n  contact: b.contact || null,\n  source: b.source || null,\n  event_type: b.event_type || null,\n  campaign: b.utm_campaign || b.campaign || null,\n  action_id: (b.action_id != null ? Number(b.action_id) : null),\n  value: (b.value != null ? Number(b.value) : null),\n  occurred_at: b.occurred_at || new Date().toISOString(),\n  metadata: (b.metadata && typeof b.metadata === 'object') ? b.metadata : null\n} }];"}},
+    {"id":"40911d9d-38fa-46e4-94e9-c8c2c913a748","name":"Insert Event","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[448,0],"parameters":{"operation":"insert","schema":{"__rl":true,"mode":"list","value":"public"},"table":{"__rl":true,"mode":"list","value":"engagement_events"},"columns":{"mappingMode":"defineBelow","value":{"account":"={{ $json.account }}","contact":"={{ $json.contact }}","source":"={{ $json.source }}","event_type":"={{ $json.event_type }}","campaign":"={{ $json.campaign }}","action_id":"={{ $json.action_id }}","value":"={{ $json.value }}","occurred_at":"={{ $json.occurred_at }}","metadata":"={{ $json.metadata }}"},"matchingColumns":[],"schema":[]},"options":{}}}
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node":"Normalize","type":"main","index":0}]]},
+    "Normalize": {"main": [[{"node":"Insert Event","type":"main","index":0}]]}
+  },
+  "settings": {"executionOrder":"v1","availableInMCP":true},
+  "meta": {"aiBuilderAssisted":true,"builderVariant":"mcp"}
+}

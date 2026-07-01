@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quick-Log Engagement</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:#f7f8fa; color:#1f2430; max-width:880px;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  h1 { font-size:20px; margin:0 0 2px 0; }
+  .subtitle { color:#5b6472; font-size:13px; margin:0 0 18px 0; line-height:1.5; max-width:680px; }
+  .topbar { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:6px; }
+  #refreshBtn { background:#2563eb; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; }
+  #refreshBtn:hover { background:#1d4ed8; }
+  .section-h { font-size:15px; margin:28px 0 10px 0; display:flex; align-items:center; gap:8px; }
+  .badge { background:#eef2ff; color:#2563eb; border-radius:20px; font-size:11px; padding:1px 8px; font-weight:600; }
+  .card { background:#fff; border:1px solid #e4e7ec; border-radius:12px; padding:14px 16px; margin-bottom:10px; }
+  .card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .account { font-size:15px; font-weight:600; }
+  .pill { font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; background:#eef2ff; color:#2563eb; }
+  .meta { color:#5b6472; font-size:12.5px; margin:6px 0 10px 0; line-height:1.6; }
+  a.tracked { font-size:12px; color:#2563eb; text-decoration:none; }
+  .logrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  select, input[type=text] { font-size:13px; padding:7px 10px; border:1px solid #e4e7ec; border-radius:8px; }
+  input[type=text] { flex:1; min-width:160px; }
+  button.log { background:#16a34a; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; }
+  button.log:hover { background:#15803d; }
+  button.log:disabled { background:#a7d8b8; cursor:default; }
+  .ok { color:#15803d; font-size:12.5px; font-weight:600; }
+  .empty, .err { font-size:14px; color:#5b6472; background:#fff; border:1px solid #e4e7ec; border-radius:10px; padding:20px; }
+  .err { color:#b42318; background:#fef3f2; border-color:#fecdca; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e4e7ec; border-radius:10px; overflow:hidden; }
+  th { text-align:left; font-size:12px; font-weight:600; color:#5b6472; background:#f7f8fa; padding:8px 10px; border-bottom:1px solid #e4e7ec; }
+  td { font-size:13px; padding:8px 10px; border-bottom:1px solid #f0f1f3; }
+  tr:last-child td { border-bottom:none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Quick-Log Engagement</h1>
+  </div>
+  <button id="refreshBtn" onclick="loadAll()">Refresh</button>
+</div>
+<p class="subtitle">For the signals GA4/Gmail can't see — a LinkedIn connection accepted, a profile view, an event registration, a content download, a connected phone call, a partner response, or a reply that felt promising. Pick the action you acted on, log what happened, and the next daily measurement run will pick it up automatically.</p>
+
+<div class="section-h">Open actions <span class="badge" id="openBadge">—</span></div>
+<div id="openList"><div class="empty">Loading…</div></div>
+
+<div class="section-h">Recently logged <span class="badge" id="recentBadge">—</span></div>
+<div id="recentList"><div class="empty">Loading…</div></div>
+
+<script>
+const SUPABASE_URL = 'https://fqsqoxsosavjhdsvfevk.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_UdFXLsE_ivpVvya5fxLfvw_MfqIpsYV';
+const ENGAGEMENT_WEBHOOK = 'https://designprodigy.app.n8n.cloud/webhook/engagement';
+
+const EVENT_TYPES = [
+  { v:'linkedin_accept',   label:'LinkedIn connection accepted' },
+  { v:'profile_visit',     label:'Profile viewed' },
+  { v:'registration',      label:'Registered for event' },
+  { v:'content_download',  label:'Downloaded content' },
+  { v:'call_connected',    label:'Phone call connected' },
+  { v:'partner_response',  label:'Partner responded' },
+  { v:'reply_or_meeting',  label:'Positive reply / meeting set' }
+];
+
+async function fetchView(view, query) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${view}?${query||'select=*'}`, {
+    headers: { apikey: SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) throw new Error(`${view} (${res.status}): ${(await res.text()).slice(0,160)}`);
+  const r = await res.json();
+  return Array.isArray(r) ? r : (r ? [r] : []);
+}
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function fmtDate(s){ return s ? new Date(s).toLocaleString() : '—'; }
+
+/* OPEN ACTIONS */
+function openCard(r){
+  const opts = EVENT_TYPES.map(t=>`<option value="${t.v}" ${t.v===r.predicted_metric?'selected':''}>${t.label}</option>`).join('');
+  const tracked = r.tracked_url ? `<a class="tracked" href="${esc(r.tracked_url)}" target="_blank">View tracked link ↗</a>` : '';
+  return `<div class="card" id="action-${r.id}">
+    <div class="card-head"><span class="account">${esc(r.account)}</span><span class="pill">${esc(r.action_type||'action')}</span></div>
+    <div class="meta">Target: ${esc(r.target||'—')} &nbsp;·&nbsp; Watching for: ${esc(r.predicted_metric||'—')} &nbsp;·&nbsp; Executed ${fmtDate(r.executed_at)} &nbsp;·&nbsp; ${tracked}</div>
+    <div class="logrow">
+      <select id="evt-${r.id}">${opts}</select>
+      <input type="text" id="note-${r.id}" placeholder="Optional note (e.g. who replied, what they said)">
+      <button class="log" id="btn-${r.id}" onclick="logEngagement(${r.id}, '${esc(r.account)}', '${esc(r.utm_campaign||'')}')">Log it</button>
+      <span class="ok" id="ok-${r.id}"></span>
+    </div>
+  </div>`;
+}
+async function loadOpen(){
+  const list = document.getElementById('openList');
+  try {
+    const rows = await fetchView('console_open_actions');
+    document.getElementById('openBadge').textContent = rows.length;
+    list.innerHTML = rows.length ? rows.map(openCard).join('') : '<div class="empty">No executed actions waiting on a signal right now.</div>';
+  } catch(err) { list.innerHTML = '<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+
+async function logEngagement(actionId, account, campaign){
+  const evt = document.getElementById(`evt-${actionId}`).value;
+  const note = document.getElementById(`note-${actionId}`).value.trim();
+  const btn = document.getElementById(`btn-${actionId}`);
+  const ok = document.getElementById(`ok-${actionId}`);
+  btn.disabled = true; btn.textContent = 'Logging…';
+  try {
+    const res = await fetch(ENGAGEMENT_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account, source: 'manual', event_type: evt,
+        utm_campaign: campaign || null, action_id: actionId, value: 1,
+        occurred_at: new Date().toISOString(),
+        metadata: note ? { note, logged_via: 'quick-log.html' } : { logged_via: 'quick-log.html' }
+      })
+    });
+    if (!res.ok) throw new Error(`webhook (${res.status}): ${(await res.text()).slice(0,160)}`);
+    ok.textContent = '✓ Logged';
+    btn.textContent = 'Logged';
+    setTimeout(loadRecent, 800);
+  } catch(err) {
+    btn.disabled = false; btn.textContent = 'Log it';
+    ok.textContent = ''; ok.style.color = '#b42318';
+    ok.textContent = 'Failed — try again';
+  }
+}
+
+/* RECENT ACTIVITY */
+function recentRow(r){
+  const note = (r.metadata && r.metadata.note) ? esc(r.metadata.note) : '';
+  return `<tr><td>${fmtDate(r.occurred_at)}</td><td>${esc(r.account||'—')}</td><td>${esc(r.event_type||'—')}</td><td>${esc(r.source||'—')}</td><td>${note}</td></tr>`;
+}
+async function loadRecent(){
+  const list = document.getElementById('recentList');
+  try {
+    const rows = await fetchView('console_recent_engagement', 'order=ingested_at.desc&limit=15');
+    document.getElementById('recentBadge').textContent = rows.length;
+    list.innerHTML = rows.length
+      ? `<table><thead><tr><th>Occurred</th><th>Account</th><th>Event</th><th>Source</th><th>Note</th></tr></thead><tbody>${rows.map(recentRow).join('')}</tbody></table>`
+      : '<div class="empty">Nothing logged yet.</div>';
+  } catch(err) { list.innerHTML = '<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+
+function loadAll(){ loadOpen(); loadRecent(); }
+loadAll();
+</script>
+</body>
+</html>

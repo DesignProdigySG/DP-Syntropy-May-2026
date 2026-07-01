@@ -1,0 +1,257 @@
+{
+  "name": "Cadence Scheduler",
+  "nodes": [
+    {
+      "id": "084b0282-97d4-493b-9b22-6641f32d2914",
+      "name": "Daily Cadence Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 6,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1cf3c851-039d-4bcb-bc68-8ebb9e8245ba",
+      "name": "Find Due Steps",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cs.id, cs.campaign_id, cs.account, cs.action_type, cs.target, cs.reason,\n       cs.hypothesis, cs.predicted_metric, cs.predicted_direction, cs.threshold,\n       cs.window_days, cs.utm_campaign, cs.tracked_url, cs.outreach_draft,\n       cs.step_number, c.run_id\nFROM cadence_steps cs\nJOIN campaigns c ON c.id = cs.campaign_id\nWHERE cs.status = 'pending' AND cs.scheduled_for <= now()\nORDER BY cs.scheduled_for ASC\nLIMIT 50;",
+        "options": {}
+      }
+    },
+    {
+      "id": "fa332d83-ba04-4099-87ab-0b979e0ce35d",
+      "name": "Insert Due Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "actions",
+          "cachedResultName": "actions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "account": "={{ $json.account }}",
+            "action_type": "={{ $json.action_type }}",
+            "hypothesis": "={{ $json.hypothesis }}",
+            "predicted_metric": "={{ $json.predicted_metric }}",
+            "predicted_direction": "={{ $json.predicted_direction }}",
+            "threshold": "={{ $json.threshold }}",
+            "window_days": "={{ $json.window_days }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "tracked_url": "={{ $json.tracked_url }}",
+            "status": "recommended",
+            "outreach_draft": "={{ $json.outreach_draft }}",
+            "target": "={{ $json.target }}",
+            "priority": "={{ $json.step_number }}",
+            "reason": "={{ $json.reason }}",
+            "campaign_id": "={{ $json.campaign_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "02dbc136-9bb7-413e-9011-c646649d9514",
+      "name": "Mark Cadence Step Recommended",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "cadence_steps",
+          "cachedResultName": "cadence_steps"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Find Due Steps').item.json.id }}",
+            "status": "recommended",
+            "action_id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7d90238a-b6de-461f-a40b-c1936337984d",
+      "name": "Build Approval Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const dueSteps = $('Find Due Steps').all().map(i => i.json);\nconst newActions = $('Insert Due Action').all().map(i => i.json);\nconst crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`action:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nreturn dueSteps.map((step, idx) => {\n  const actionRow = newActions[idx] || {};\n  const actionId = actionRow.id;\n  const subject = 'Cadence step due - ' + step.account + ' [' + step.action_type + ']';\n  const message = 'Scheduled cadence step is now due.\\n\\n' +\n    'Account: ' + step.account + '\\n' +\n    'Step: ' + step.action_type + ' -> ' + (step.target || 'target') + '\\n' +\n    (step.reason || '') + '\\n\\n' +\n    'APPROVE: ' + base + '?id=' + actionId + '&action=approve&sig=' + sign(actionId, 'approve') + '\\n' +\n    'REJECT:  ' + base + '?id=' + actionId + '&action=reject&sig=' + sign(actionId, 'reject');\n  return { json: { account: step.account, subject, message } };\n});"
+      }
+    },
+    {
+      "id": "58d59961-7426-4b6f-b5ac-7c78dfaa961f",
+      "name": "Send Approval Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "honlamchia@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {}
+      },
+      "webhookId": "c667e0ec-840e-431c-9138-1de460036deb"
+    },
+    {
+      "id": "aaaa1111-0000-4000-8000-000000000001",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1010,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select value from app_config where key='approval_hmac_secret';",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Daily Cadence Check": {
+      "main": [
+        [
+          {
+            "node": "Find Due Steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Due Steps": {
+      "main": [
+        [
+          {
+            "node": "Insert Due Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Due Action": {
+      "main": [
+        [
+          {
+            "node": "Mark Cadence Step Recommended",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Cadence Step Recommended": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Approval Email": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Build Approval Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
+}
