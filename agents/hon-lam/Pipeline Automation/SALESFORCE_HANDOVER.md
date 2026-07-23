@@ -1,4 +1,4 @@
-# Salesforce in the DP Syntropy Pipeline — Handover (2026-06-29)
+# Salesforce in the Intelligent Automation Pipeline Pipeline — Handover (2026-06-29)
 
 ## Where things stand
 

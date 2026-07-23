@@ -1,0 +1,307 @@
+{
+ "name": "Salesforce Task Outcome Sync",
+ "nodes": [
+  {
+   "id": "c99671c8-797c-42d3-ae67-5a52d499e10e",
+   "name": "Daily 07:00",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "days",
+       "daysInterval": 1,
+       "triggerAtHour": 7
+      }
+     ]
+    }
+   },
+   "typeVersion": 1.3
+  },
+  {
+   "id": "15c50f7b-2c98-4a9a-9d10-b5008cb36f70",
+   "name": "Get Measured Outcomes",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    224,
+    0
+   ],
+   "parameters": {
+    "query": "SELECT o.action_id, a.salesforce_task_id, a.account, a.action_type, a.reason, a.hypothesis, a.tracked_url,\n       o.result, o.measured_metric, o.measured_value, o.baseline_value, o.effect, o.measured_at\nFROM outcomes o\nJOIN actions a ON a.id = o.action_id\nWHERE a.salesforce_task_id IS NOT NULL\n  AND o.measured_at > now() - interval '1 day'\nORDER BY o.measured_at DESC\nLIMIT 100;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "19df25f4-336c-4d8b-bc2b-6968d14446bd",
+   "name": "Build Task Update",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    448,
+    0
+   ],
+   "parameters": {
+    "mode": "runOnceForEachItem",
+    "jsCode": "// Rebuild the Task description in the same shape 'Create a task' wrote it,\n// with the measured outcome appended — Salesforce Task update replaces the\n// description wholesale, so we reconstruct rather than append blind.\nconst j = $json;\nconst label = j.result === 'met' ? 'MET \\u2713' : (j.result === 'not_met' ? 'NOT MET \\u2717' : 'INCONCLUSIVE');\nconst description = [\n  j.reason || '',\n  '',\n  `Hypothesis: ${j.hypothesis || ''}`,\n  `Tracked link: ${j.tracked_url || ''}`,\n  '',\n  `--- OUTCOME (synced from DP Syntropy ${String(j.measured_at).slice(0, 10)}) ---`,\n  `Result: ${label}`,\n  `${j.measured_metric || 'metric'}: ${j.measured_value ?? 'n/a'} vs baseline ${j.baseline_value ?? 'n/a'} (effect ${j.effect ?? 'n/a'})`\n].join('\\n');\nreturn { json: { taskId: j.salesforce_task_id, description } };"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "0ba95ca6-57df-4607-874c-9080ffa04b6f",
+   "name": "Complete Salesforce Task",
+   "type": "n8n-nodes-base.salesforce",
+   "onError": "continueRegularOutput",
+   "maxTries": 3,
+   "position": [
+    672,
+    0
+   ],
+   "parameters": {
+    "taskId": "={{ $json.taskId }}",
+    "resource": "task",
+    "operation": "update",
+    "updateFields": {
+     "status": "Completed",
+     "description": "={{ $json.description }}"
+    }
+   },
+   "credentials": {
+    "salesforceOAuth2Api": {
+     "id": "HPnx6HXN8COY4aOe",
+     "name": "Salesforce account 2"
+    }
+   },
+   "retryOnFail": true,
+   "typeVersion": 1.1,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "d5b7bb27-fdbd-492c-9f59-93757b652573",
+   "name": "SF Sync Error?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    900,
+    220
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 3,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "loose"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "id": "sferr1",
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty",
+        "singleValue": true
+       },
+       "leftValue": "={{ $json.error ? 'yes' : '' }}",
+       "rightValue": ""
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "85e01614-6fc3-4fc8-9b14-c39ad89b7407",
+   "name": "Log SF Sync Error",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1120,
+    220
+   ],
+   "parameters": {
+    "table": {
+     "__rl": true,
+     "mode": "list",
+     "value": "pipeline_errors",
+     "cachedResultName": "pipeline_errors"
+    },
+    "schema": {
+     "__rl": true,
+     "mode": "list",
+     "value": "public"
+    },
+    "columns": {
+     "value": {
+      "phase": "task-outcome-sync",
+      "company": "SF Task Outcome Sync",
+      "resolved": false,
+      "error_msg": "={{ $json.error?.message || $json.error?.description || JSON.stringify($json.error || {}) }}",
+      "node_name": "Salesforce (Task Outcome Sync)",
+      "occurred_at": "={{ $now.toISO() }}"
+     },
+     "schema": [
+      {
+       "id": "id",
+       "type": "number",
+       "display": true,
+       "removed": true,
+       "required": false,
+       "displayName": "id",
+       "defaultMatch": true,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "occurred_at",
+       "type": "dateTime",
+       "display": true,
+       "required": false,
+       "displayName": "occurred_at",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "company",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "company",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "phase",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "phase",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "node_name",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "node_name",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "error_msg",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "error_msg",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "resolved",
+       "type": "boolean",
+       "display": true,
+       "required": false,
+       "displayName": "resolved",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      }
+     ],
+     "mappingMode": "defineBelow",
+     "matchingColumns": [
+      "id"
+     ],
+     "attemptToConvertTypes": false,
+     "convertFieldsToString": false
+    },
+    "options": {}
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  }
+ ],
+ "connections": {
+  "Daily 07:00": {
+   "main": [
+    [
+     {
+      "node": "Get Measured Outcomes",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "SF Sync Error?": {
+   "main": [
+    [
+     {
+      "node": "Log SF Sync Error",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Task Update": {
+   "main": [
+    [
+     {
+      "node": "Complete Salesforce Task",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Measured Outcomes": {
+   "main": [
+    [
+     {
+      "node": "Build Task Update",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Complete Salesforce Task": {
+   "main": [
+    [
+     {
+      "node": "SF Sync Error?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "binaryMode": "separate",
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "timeSavedMode": "fixed",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "PZThZtvGakw82RX8",
+  "activeAtExport": true
+ }
+}

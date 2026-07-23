@@ -1,0 +1,209 @@
+{
+ "name": "Draft Backfill",
+ "nodes": [
+  {
+   "id": "350ab1ae-2466-4ff6-902a-2a6850089f8a",
+   "name": "Every 2 Hours",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "position": [
+    0,
+    80
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "hours",
+       "hoursInterval": 2
+      }
+     ]
+    }
+   },
+   "typeVersion": 1.3
+  },
+  {
+   "id": "cf9e60c6-56b5-4b49-9f69-dd8e8500767c",
+   "name": "Get Draftless Steps",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    224,
+    80
+   ],
+   "parameters": {
+    "query": "SELECT 'cadence_steps' AS tbl, cs.id, cs.account, cs.action_type, cs.target, cs.reason, cs.hypothesis, cs.tracked_url,\n       coalesce(cs.funnel_stage, o.funnel_stage) AS funnel_stage, o.objective_key, pr.industry, pr.theme\nFROM cadence_steps cs\nJOIN campaigns c ON c.id = cs.campaign_id\nLEFT JOIN pipeline_runs pr ON pr.id = c.run_id\nLEFT JOIN campaign_objectives o ON o.campaign_id = cs.campaign_id\nWHERE cs.status = 'pending' AND (cs.outreach_draft IS NULL OR cs.outreach_draft = '')\nUNION ALL\nSELECT 'actions' AS tbl, a.id, a.account, a.action_type, a.target, a.reason, a.hypothesis, a.tracked_url,\n       coalesce(a.funnel_stage, o.funnel_stage) AS funnel_stage, o.objective_key, pr.industry, pr.theme\nFROM actions a\nLEFT JOIN pipeline_runs pr ON pr.id = a.run_id\nLEFT JOIN campaign_objectives o ON o.campaign_id = a.campaign_id\nWHERE a.status = 'recommended' AND (a.outreach_draft IS NULL OR a.outreach_draft = '')\nORDER BY 1\nLIMIT 25;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "783a15a9-0a56-42ce-b370-0b98cd2fb37e",
+   "name": "Generate Draft",
+   "type": "n8n-nodes-base.httpRequest",
+   "onError": "continueRegularOutput",
+   "maxTries": 2,
+   "position": [
+    672,
+    0
+   ],
+   "parameters": {
+    "url": "https://designprodigy.app.n8n.cloud/webhook/generate-draft",
+    "method": "POST",
+    "options": {
+     "timeout": 30000
+    },
+    "jsonBody": "={{ { 'action_type': $json.action_type, 'account': $json.account, 'industry': $json.industry, 'theme': $json.theme, 'target': $json.target, 'funnel_stage': $json.funnel_stage, 'objective': $json.objective_key, 'reason': $json.reason || $json.hypothesis, 'tracked_url': $json.tracked_url } }}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "retryOnFail": true,
+   "typeVersion": 4.4,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "a269ea8b-ffde-4410-baf4-50da9f5db1a4",
+   "name": "Save Draft",
+   "type": "n8n-nodes-base.postgres",
+   "onError": "continueRegularOutput",
+   "position": [
+    896,
+    80
+   ],
+   "parameters": {
+    "query": "UPDATE {{ $('Draft Backfill Loop').item.json.tbl }} SET outreach_draft = $1 WHERE id = $2;",
+    "options": {
+     "queryReplacement": "={{ [$json.draft, $('Draft Backfill Loop').item.json.id] }}"
+    },
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "abb4df39-0697-41c3-8442-a9b1e786a75c",
+   "name": "Draft Backfill Loop",
+   "type": "n8n-nodes-base.splitInBatches",
+   "position": [
+    448,
+    80
+   ],
+   "parameters": {
+    "options": {},
+    "batchSize": 1
+   },
+   "typeVersion": 3
+  },
+  {
+   "id": "c37055d9-8615-4ad9-bfd7-836295610caa",
+   "name": "Backfill Now",
+   "type": "n8n-nodes-base.webhook",
+   "position": [
+    0,
+    240
+   ],
+   "webhookId": "a2c7bf93-d496-4e3a-a111-bad88c478d40",
+   "parameters": {
+    "path": "run-draft-backfill",
+    "options": {},
+    "httpMethod": "POST",
+    "responseMode": "onReceived"
+   },
+   "typeVersion": 2.1
+  }
+ ],
+ "connections": {
+  "Save Draft": {
+   "main": [
+    [
+     {
+      "node": "Draft Backfill Loop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Backfill Now": {
+   "main": [
+    [
+     {
+      "node": "Get Draftless Steps",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Every 2 Hours": {
+   "main": [
+    [
+     {
+      "node": "Get Draftless Steps",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Generate Draft": {
+   "main": [
+    [
+     {
+      "node": "Save Draft",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Draft Backfill Loop": {
+   "main": [
+    [],
+    [
+     {
+      "node": "Generate Draft",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Draftless Steps": {
+   "main": [
+    [
+     {
+      "node": "Draft Backfill Loop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "binaryMode": "separate",
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "timeSavedMode": "fixed",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "V9Ywv5lW6eZ7qY5h",
+  "activeAtExport": true
+ }
+}

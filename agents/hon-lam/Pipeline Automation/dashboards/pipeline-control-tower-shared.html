@@ -38,6 +38,7 @@
   .approve { background:#16a34a; color:#fff; } .approve:hover { background:#15803d; }
   .reject { background:#fff; color:#b42318; border-color:#fecdca; } .reject:hover { background:#fef3f2; }
   select { font-size:13px; padding:7px 10px; border:1px solid #e4e7ec; border-radius:8px; }
+  input[type=text].qlnote { font-size:13px; padding:7px 10px; border:1px solid #e4e7ec; border-radius:8px; flex:1; min-width:160px; }
   .empty, .err { font-size:14px; color:#5b6472; background:#fff; border:1px solid #e4e7ec; border-radius:10px; padding:20px; }
   .err { color:#b42318; background:#fef3f2; border-color:#fecdca; }
   .kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:20px; }
@@ -67,37 +68,116 @@
 </div>
 
 <div class="tabs">
-  <button class="tab active" id="tabbtn-briefs" onclick="showTab('briefs')">Briefs <span class="badge" id="briefBadge">—</span></button>
+  <button class="tab active" id="tabbtn-myday" onclick="showTab('myday')">My Day <span class="badge" id="mydayBadge">—</span></button>
+  <button class="tab" id="tabbtn-briefs" onclick="showTab('briefs')">Briefs <span class="badge" id="briefBadge">—</span></button>
   <button class="tab" id="tabbtn-review" onclick="showTab('review')">Actions <span class="badge" id="reviewBadge">—</span></button>
   <button class="tab" id="tabbtn-campaigns" onclick="showTab('campaigns')">Campaigns <span class="badge" id="campaignBadge">—</span></button>
+  <button class="tab" id="tabbtn-quicklog" onclick="showTab('quicklog')">Quick Log <span class="badge" id="quicklogBadge">—</span></button>
   <button class="tab" id="tabbtn-account360" onclick="showTab('account360')">Account 360</button>
-  <button class="tab" id="tabbtn-aidecisions" onclick="showTab('aidecisions')">AI Decisions <span class="badge" id="aiDecisionBadge">—</span></button>
+  <span style="align-self:center;color:#8a93a3;font-size:11px;padding:0 6px;margin-left:8px;border-left:1px solid #e4e7ec;">Ops</span>
   <button class="tab" id="tabbtn-dashboard" onclick="showTab('dashboard')">Dashboard</button>
+  <button class="tab" id="tabbtn-aidecisions" onclick="showTab('aidecisions')">AI Decisions <span class="badge" id="aiDecisionBadge">—</span></button>
   <button class="tab" id="tabbtn-settings" onclick="showTab('settings')">Settings</button>
+</div>
+
+<div class="tabpanel active" id="tab-myday">
+  <p class="subtitle" style="margin-top:0;">What to do in the next 30 minutes — today's touches, grouped by account. Copy the draft, send it, done.</p>
+  <div id="mydayList"><div class="empty">Loading…</div></div>
 </div>
 
 <div class="tabpanel" id="tab-settings">
   <div class="card" style="max-width:640px;">
-    <h2 style="font-size:16px;margin:0 0 4px 0;">Tracking configuration</h2>
-    <p class="meta" style="margin-top:0;">Set the website your outreach links point to (must have GA4 installed) and your GA4 property ID. Read-only shared view - these values are managed by the pipeline owner.</p>
+    <h2 style="font-size:16px;margin:0 0 4px 0;">Pipeline settings</h2>
+    <p class="meta" style="margin-top:0;">Read-only shared view — these values are managed by the pipeline owner.</p>
+
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 2px;">Channel integrations</div>
+    <p class="kpi-sub" style="margin:0 0 10px;">Which outreach tools are wired. API keys are owner-managed; webhook URLs are shown for setup reference.</p>
+
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:2px;">Email · Smartlead <span id="cfgSmartleadState" class="kpi-sub" style="font-weight:400;"></span></label>
+      <div class="kpi-sub" style="margin-top:2px;">Zero-touch email send + reply capture.</div>
+    </div>
+
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:2px;">LinkedIn · HeyReach <span id="cfgHeyreachState" class="kpi-sub" style="font-weight:400;"></span></label>
+      <div class="kpi-sub" style="margin-top:2px;">Captures LinkedIn accepts, replies, profile views and post likes. Webhook target:</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+        <code style="flex:1;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:6px;padding:6px 8px;font-size:12px;word-break:break-all;">https://designprodigy.app.n8n.cloud/webhook/linkedin</code>
+        <button type="button" class="approve" style="padding:6px 12px;font-size:12px;" onclick="copyText('https://designprodigy.app.n8n.cloud/webhook/linkedin',this)">Copy</button>
+      </div>
+    </div>
+
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:2px;">Calendar · Calendly</label>
+      <div class="kpi-sub" style="margin-top:2px;">Booked meetings — the strongest success signal for reply objectives. Webhook target:</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+        <code style="flex:1;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:6px;padding:6px 8px;font-size:12px;word-break:break-all;">https://designprodigy.app.n8n.cloud/webhook/calendly</code>
+        <button type="button" class="approve" style="padding:6px 12px;font-size:12px;" onclick="copyText('https://designprodigy.app.n8n.cloud/webhook/calendly',this)">Copy</button>
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 10px;padding-top:16px;border-top:1px solid #eef0f3;">Tracking &amp; analytics</div>
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Tracking base URL</label>
       <input id="cfgUrl" type="text" disabled placeholder="https://www.yourcompany.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
-      <div class="kpi-sub" style="margin-top:4px;">Outreach links become <code>&lt;this&gt;?utm_source=…&amp;utm_campaign=…</code></div>
+      <div class="kpi-sub" style="margin-top:4px;">Outreach links become <code>&lt;this&gt;?utm_source=…&amp;utm_campaign=…</code>. The site must have GA4 installed.</div>
     </div>
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">GA4 property ID</label>
       <input id="cfgGa4" type="text" disabled placeholder="e.g. 123456789" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
       <div class="kpi-sub" style="margin-top:4px;">Numeric GA4 property used to measure page visits.</div>
     </div>
-    <div class="actions-row">
-      <span class="kpi-sub" style="color:#8a93a3">Read-only view - tracking configuration is managed by the pipeline owner.</span>
+
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 10px;padding-top:16px;border-top:1px solid #eef0f3;">The Read</div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">The Read feedback URL</label>
+      <input id="cfgWhenUrl" type="text" disabled placeholder="https://…/webhook/read-feedback" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Where rejected briefs/actions are sent back to the Read for re-scoring. Blank = feedback is skipped.</div>
+    </div>
+
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 10px;padding-top:16px;border-top:1px solid #eef0f3;">Notifications</div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Rep notification email</label>
+      <input id="cfgRepEmail" type="email" disabled placeholder="rep@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Where approved-action emails (outreach draft + tracked link) are sent. Blank = sending skipped.</div>
+    </div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Manager report email</label>
+      <input id="cfgManagerEmail" type="email" disabled placeholder="manager@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Where the Friday Weekly Wins report is sent. Blank = sending skipped.</div>
+    </div>
+
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 10px;padding-top:16px;border-top:1px solid #eef0f3;">Automation rules</div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Approval-required channels</label>
+      <div class="kpi-sub" style="margin-bottom:8px;">Channels that still need a per-step click in the daily digest; every unticked channel is auto-approved. Read-only here.</div>
+      <div id="cfgChannelsList" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;">Loading…</div>
+    </div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Recommendation expiry (days)</label>
+      <input id="cfgExpiry" type="number" disabled placeholder="7" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Pending recommendations older than this are auto-cancelled nightly with reason "expired" — stale timing is wrong timing.</div>
+    </div>
+
+    <div class="actions-row" style="margin-top:18px;">
+      <span class="kpi-sub" style="color:#8a93a3">Read-only view — settings are managed by the pipeline owner.</span>
       <span id="cfgStatus" class="kpi-sub"></span>
     </div>
   </div>
+  <div class="card" style="max-width:640px;margin-top:16px;">
+    <h2 style="font-size:16px;margin:0 0 4px 0;">Credentials &amp; where they live</h2>
+    <p class="meta" style="margin-top:0;">Reference only — secrets are <strong>never</strong> stored or editable on this page. They live in their platform vaults.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tbody>
+        <tr style="border-top:1px solid #e4e7ec;"><td style="padding:8px;font-weight:600;vertical-align:top;">OpenAI · AWS S3 · Salesforce · Gmail · Postgres · Google service account</td><td style="padding:8px;">n8n credential store (per workflow).</td></tr>
+        <tr style="border-top:1px solid #e4e7ec;"><td style="padding:8px;font-weight:600;vertical-align:top;"><code>approval_hmac_secret</code></td><td style="padding:8px;">Supabase <code>app_config</code>, server-side only (Sign Link workflow). Never exposed to this page.</td></tr>
+        <tr style="border-top:1px solid #e4e7ec;"><td style="padding:8px;font-weight:600;vertical-align:top;">Supabase anon (publishable) key</td><td style="padding:8px;">Embedded in this dashboard HTML — internal-only; RLS is the real boundary.</td></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<div class="tabpanel active" id="tab-briefs">
+<div class="tabpanel" id="tab-briefs">
   <div id="briefList"><div class="empty">Loading…</div></div>
 </div>
 
@@ -116,12 +196,23 @@
   <div class="panel full"><h2>Cadence steps</h2><div id="cadenceStepTable" class="loading">Loading…</div></div>
 </div>
 
+<div class="tabpanel" id="tab-quicklog">
+  <p class="subtitle" style="margin-top:0;">For the signals GA4/Gmail can't see — a LinkedIn accept, a profile view, an event registration, a content download, a connected call, a partner response. Covers <strong>every</strong> executed action still waiting on a signal (My Day only shows today's). Log it here and the next daily measurement run picks it up automatically.</p>
+  <h2 class="section-h" style="margin-top:0;">Open actions <span id="quicklogOpenBadge" style="background:#eef2ff;color:#2563eb;border-radius:20px;font-size:11px;padding:1px 8px;font-weight:600;">—</span></h2>
+  <div id="quicklogOpenList"><div class="empty">Loading…</div></div>
+  <h2 class="section-h">Recently logged <span id="quicklogRecentBadge" style="background:#eef2ff;color:#2563eb;border-radius:20px;font-size:11px;padding:1px 8px;font-weight:600;">—</span></h2>
+  <div class="panel full"><div id="quicklogRecentList" class="loading">Loading…</div></div>
+</div>
+
 <div class="tabpanel" id="tab-account360">
   <div class="card" style="margin-bottom:16px;">
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <input id="acctInput" list="acctOptions" type="text" placeholder="Type or pick an account…" style="flex:1;min-width:240px;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;" onkeydown="if(event.key==='Enter') loadAccount360()">
       <datalist id="acctOptions"></datalist>
       <button class="approve" onclick="loadAccount360()">View account</button>
+      <button class="reject" style="border-color:#e4e7ec;color:#1f2430;" onclick="copyAcct360Summary()">📋 Copy summary</button>
+      <button class="reject" style="border-color:#e4e7ec;color:#1f2430;" onclick="window.print()">🖨 Print</button>
+      <span class="kpi-sub" id="acct360CopyStatus"></span>
     </div>
   </div>
   <div id="acct360Body"><div class="empty">Type or pick an account above to see its full history — score, campaigns, Salesforce sync, every action and AI decision, and rejections.</div></div>
@@ -176,8 +267,11 @@
     <div class="panel"><h2>Hypothesis win-rate by action type</h2><div class="chart-wrap" id="winrateWrap"><canvas id="winrateChart"></canvas></div><div class="kpi-sub" id="winrateNote" style="margin-top:8px;"></div></div>
   </div>
 
+  <h2 class="section-h">MMM readiness — labeled training rows per funnel stage</h2>
+  <div class="panel full" style="margin-bottom:16px;"><div id="mmmReadiness" class="loading">Loading…</div><div class="kpi-sub" id="mmmReadinessNote" style="margin-top:8px;"></div></div>
+
   <div class="panel full" style="margin-bottom:16px;"><h2>Channel performance — touches vs conversions by channel</h2><div class="chart-wrap" id="channelWrap"><canvas id="channelChart"></canvas></div></div>
-  <div class="panel full" style="margin-bottom:16px;"><h2>AI vs. template channel picks — win rate by source</h2><div class="chart-wrap" id="channelSourceWrap"><canvas id="channelSourceChart"></canvas></div><div class="kpi-sub" id="channelSourceNote" style="margin-top:8px;"></div></div>
+  <div class="panel full" style="margin-bottom:16px;"><h2>Channel picks — win rate by source (exploration vs AI vs template)</h2><div class="chart-wrap" id="channelSourceWrap"><canvas id="channelSourceChart"></canvas></div><div class="kpi-sub" id="channelSourceNote" style="margin-top:8px;"></div></div>
   <div class="panel full" style="margin-bottom:16px;"><h2>Attribution — conversions credited by campaign / source (last-touch)</h2><div class="chart-wrap" id="attribWrap"><canvas id="attribChart"></canvas></div></div>
   <div class="panel full" style="margin-bottom:16px;"><h2>Correction rate over cycles — down = the system is getting sharper</h2><div class="chart-wrap" id="correctionWrap"><canvas id="correctionChart"></canvas></div></div>
   <div class="panel full" style="margin-bottom:16px;"><h2>Rejection reasons — where feedback routes</h2><div class="chart-wrap" id="rejectWrap"><canvas id="rejectChart"></canvas></div></div>
@@ -185,28 +279,43 @@
 </div>
 
 <script>
-const SUPABASE_URL = 'https://fqsqoxsosavjhdsvfevk.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_UdFXLsE_ivpVvya5fxLfvw_MfqIpsYV';
+const SUPABASE_URL = 'https://ssbdlttcyogtcowvcbaj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_wPvWJ0X1DHoY7p4eJntoeA_2diTHWn7';
 const ACTION_WEBHOOK = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';
 const BRIEF_WEBHOOK  = 'https://designprodigy.app.n8n.cloud/webhook/brief-approval';
-const SIGN_LINK_ENDPOINT = 'https://designprodigy.app.n8n.cloud/webhook/sign-link';
+const SIGN_WEBHOOK   = 'https://designprodigy.app.n8n.cloud/webhook/sign-link';
 const palette = ['#2563eb','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#475569'];
 let charts = {};
 
-/* Approval-link signing — delegated to the "Sign Link" n8n workflow so the
-   signing secret never lives in this static, publicly-viewable file. */
-async function signLink(scope, id, action){
-  const res = await fetch(SIGN_LINK_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope, id, action })
-  });
-  if(!res.ok) throw new Error('Failed to sign link ('+res.status+')');
-  const data = await res.json();
-  return data.sig;
+/* Approval-link signing — delegated to the "Sign Link" n8n webhook so this file
+   never holds the raw HMAC secret. The 2026-07-01 version of this delegation
+   crashed because the dashboard fired one request per link (~100 concurrent
+   POSTs on a full queue swamped n8n's execution concurrency and the queued
+   executions were reaped as "crashed"). Fixed 2026-07-02: Sign Link now accepts
+   {items:[{scope,id,action},...]} and the dashboard sends ONE batched request
+   per tab load. Returns a map of "scope:id:action" -> sig. */
+async function signBatch(items){
+  if(!items.length) return {};
+  try {
+    const res = await fetch(SIGN_WEBHOOK, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ items })
+    });
+    if(!res.ok) throw new Error(`sign-link (${res.status})`);
+    const text = await res.text();               // tolerate an empty body (e.g. n8n over quota)
+    const data = text ? JSON.parse(text) : {};
+    const map = {};
+    (data.sigs||[]).forEach(s=>{ map[`${s.scope}:${s.id}:${s.action}`] = s.sig; });
+    return map;
+  } catch(e){
+    // Don't blank the whole tab if Sign Link is unreachable — render rows with
+    // unsigned links and warn. (Fixes "Unexpected end of JSON input" on brief/action/my-day.)
+    console.warn('signBatch failed — approve/reject links unsigned until Sign Link is reachable:', e.message);
+    return {};
+  }
 }
-async function signedUrl(base, scope, id, action){
-  return `${base}?id=${encodeURIComponent(id)}&action=${action}&sig=${await signLink(scope, id, action)}`;
+function signedUrlFrom(map, base, scope, id, action){
+  return `${base}?id=${encodeURIComponent(id)}&action=${action}&sig=${map[`${scope}:${id}:${action}`]||''}`;
 }
 
 async function fetchView(view, query) {
@@ -263,6 +372,151 @@ function templateTraceNote(c){
   if(!t || !t.matched_count) return '';
   const runnerUps = (t.runner_ups||[]).map(r=>esc(r.name)+' (p'+r.priority+')').join(', ');
   return ` · ${esc(t.reason||('matched '+t.matched_count+' template(s)'))}${runnerUps?(' — also matched: '+runnerUps):''}`;
+}
+
+/* MY DAY — today's touches grouped by account (console_my_day view):
+   'ready' = approved/auto-approved today, just copy the draft and send;
+   'pending' = still needs a click (gated channel or pre-model backlog).
+   Ready cards embed quick-log: pick an outcome, hit Log — same POST the
+   standalone quick-log.html sends to /webhook/engagement. */
+const ENGAGEMENT_WEBHOOK = 'https://designprodigy.app.n8n.cloud/webhook/engagement';
+const LOG_EVENT_TYPES = [
+  { v:'reply_or_meeting',  label:'Positive reply / meeting set' },
+  { v:'call_connected',    label:'Phone call connected' },
+  { v:'linkedin_accept',   label:'LinkedIn connection accepted' },
+  { v:'profile_visit',     label:'Profile viewed' },
+  { v:'registration',      label:'Registered for event' },
+  { v:'content_download',  label:'Downloaded content' },
+  { v:'partner_response',  label:'Partner responded' }
+];
+async function logOutcome(id, account, campaign){
+  const evt=document.getElementById(`myday-evt-${id}`).value;
+  const noteEl=document.getElementById(`myday-note-${id}`);
+  const note=noteEl?(noteEl.value||'').trim():'';
+  const st=document.getElementById(`myday-status-${id}`);
+  if(st){st.style.color='#8a93a3';st.textContent='Logging…';}
+  try{
+    const res=await fetch(ENGAGEMENT_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({account, source:'manual', event_type:evt, utm_campaign:campaign||null, action_id:id, value:1, occurred_at:new Date().toISOString(), metadata: note?{note, logged_via:'my-day'}:{logged_via:'my-day'}})});
+    if(!res.ok) throw new Error(`webhook (${res.status})`);
+    if(st){st.style.color='#16a34a';st.textContent='✓ Logged — the next measurement run picks it up';}
+  }catch(e){ if(st){st.style.color='#b42318';st.textContent='Failed — try again';} }
+}
+/* QUICK LOG — direct port of quick-log.html into a tab. Uses
+   console_open_actions (ALL executed actions still waiting on a measurable
+   signal — console_my_day only covers today's), the same POST to
+   /webhook/engagement, plus an optional note stored in metadata.note and a
+   recently-logged feed (console_recent_engagement) as immediate confirmation. */
+function quicklogCard(r){
+  const opts=LOG_EVENT_TYPES.map(t=>`<option value="${t.v}" ${t.v===r.predicted_metric?'selected':''}>${t.label}</option>`).join('');
+  const tracked=r.tracked_url?`<a class="brief" href="${esc(r.tracked_url)}" target="_blank">View tracked link ↗</a>`:'';
+  return `<div class="card" id="ql-action-${r.id}">
+    <div class="card-head"><span class="account">${acctLink(r.account)}</span><span class="pill">${esc(r.action_type||'action')}</span></div>
+    <div class="meta">Target: ${esc(r.target||'—')} &nbsp;·&nbsp; Watching for: ${esc(r.predicted_metric||'—')} &nbsp;·&nbsp; Executed ${r.executed_at?new Date(r.executed_at).toLocaleString():'—'}${tracked?(' &nbsp;·&nbsp; '+tracked):''}</div>
+    <div class="actions-row">
+      <select id="ql-evt-${r.id}">${opts}</select>
+      <input type="text" class="qlnote" id="ql-note-${r.id}" placeholder="Optional note (e.g. who replied, what they said)">
+      <button class="approve" id="ql-btn-${r.id}" onclick="logQuickEngagement(${r.id}, '${esc(r.account)}', '${esc(r.utm_campaign||'')}')">Log it</button>
+      <span class="kpi-sub" id="ql-status-${r.id}"></span>
+    </div></div>`;
+}
+async function logQuickEngagement(id, account, campaign){
+  const evt=document.getElementById(`ql-evt-${id}`).value;
+  const note=(document.getElementById(`ql-note-${id}`).value||'').trim();
+  const btn=document.getElementById(`ql-btn-${id}`);
+  const st=document.getElementById(`ql-status-${id}`);
+  btn.disabled=true; btn.textContent='Logging…';
+  try{
+    const res=await fetch(ENGAGEMENT_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({account, source:'manual', event_type:evt, utm_campaign:campaign||null, action_id:id, value:1,
+        occurred_at:new Date().toISOString(),
+        metadata: note?{note, logged_via:'dashboard-quicklog'}:{logged_via:'dashboard-quicklog'}})});
+    if(!res.ok) throw new Error(`webhook (${res.status})`);
+    btn.textContent='Logged';
+    if(st){st.style.color='#16a34a';st.textContent='✓ Logged — the next measurement run picks it up';}
+    setTimeout(loadQuicklogRecent, 800);
+  }catch(e){
+    btn.disabled=false; btn.textContent='Log it';
+    if(st){st.style.color='#b42318';st.textContent='Failed — try again';}
+  }
+}
+async function loadQuicklogOpen(){
+  const list=document.getElementById('quicklogOpenList');
+  try{
+    const rows=await fetchView('console_open_actions');
+    document.getElementById('quicklogOpenBadge').textContent=rows.length;
+    document.getElementById('quicklogBadge').textContent=rows.length;
+    list.innerHTML=rows.length?rows.map(quicklogCard).join(''):'<div class="empty">No executed actions waiting on a signal right now.</div>';
+  }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+async function loadQuicklogRecent(){
+  const el=document.getElementById('quicklogRecentList');
+  try{
+    const rows=await fetchView('console_recent_engagement','order=ingested_at.desc&limit=15');
+    document.getElementById('quicklogRecentBadge').textContent=rows.length;
+    el.classList.remove('loading');
+    if(!rows.length){ el.innerHTML='<div class="empty">Nothing logged yet.</div>'; return; }
+    el.innerHTML='';
+    new gridjs.Grid({
+      columns:['Occurred','Account','Event','Source','Note'],
+      data:rows.map(r=>[r.occurred_at?new Date(r.occurred_at).toLocaleString():'—', r.account||'—', r.event_type||'—', r.source||'—', (r.metadata&&r.metadata.note)||'']),
+      sort:true, pagination:{limit:8}
+    }).render(el);
+  }catch(err){ el.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+async function loadQuickLog(){ await Promise.all([loadQuicklogOpen(), loadQuicklogRecent()]); }
+
+async function loadMyDay(){
+  const list=document.getElementById('mydayList');
+  try{
+    const rows=await fetchView('console_my_day');
+    await loadGatedChannels();
+    document.getElementById('mydayBadge').textContent=rows.length;
+    if(!rows.length){ list.innerHTML='<div class="empty">🎉 Nothing on your plate — new touches land here each morning after the 06:30 scheduler run.</div>'; return; }
+    const pending=rows.filter(r=>r.status==='recommended');
+    const sigs=await signBatch(pending.map(r=>({scope:'action',id:String(r.id),action:'approve'})));
+    const byAccount={};
+    rows.forEach(r=>{ (byAccount[r.account]=byAccount[r.account]||[]).push(r); });
+    list.innerHTML=Object.entries(byAccount).map(([account,items])=>{
+      const cards=items.map(r=>{
+        const draft=r.outreach_draft?`<details style="margin:6px 0;"><summary style="cursor:pointer;font-size:12px;color:#5b6472;">Draft</summary><div class="hyp" style="white-space:pre-wrap;margin-top:6px;">${esc(r.outreach_draft)}</div></details>`:'<div class="kpi-sub" style="margin:6px 0;">(no draft — write your own)</div>';
+        const link=r.tracked_url?`<div class="meta" style="margin:6px 0;">Tracked link: <a class="brief" href="${esc(r.tracked_url)}" target="_blank">${esc(r.tracked_url)}</a></div>`:'';
+        let btn;
+        if(r.status==='executed'){
+          const opts=LOG_EVENT_TYPES.map(t=>`<option value="${t.v}" ${t.v===r.predicted_metric?'selected':''}>${t.label}</option>`).join('');
+          btn=`<button class="approve" onclick="copyDraft(${r.id})">📋 Copy draft</button>
+               <select id="myday-evt-${r.id}">${opts}</select>
+               <input type="text" class="qlnote" id="myday-note-${r.id}" placeholder="Optional note (e.g. who replied)">
+               <button class="approve" style="background:#0891b2;" onclick="logOutcome(${r.id}, '${esc(r.account)}', '${esc(r.utm_campaign||'')}')">Log outcome</button>
+               <span class="kpi-sub" id="myday-status-${r.id}"></span>`;
+        }else{
+          const url=signedUrlFrom(sigs,ACTION_WEBHOOK,'action',r.id,'approve');
+          btn=`<button class="approve" id="myday-approve-${r.id}" onclick="approveFromMyDay(${r.id}, '${esc(url)}')">✓ Approve</button><span class="kpi-sub" id="myday-status-${r.id}"></span>`;
+        }
+        const tag=r.status==='executed'?'<span class="pill ok">ready to send</span>':gatePill(r.action_type);
+        return `<div style="border-top:1px solid #f0f1f3;padding-top:10px;margin-top:10px;">
+          <div class="meta" style="margin:0 0 6px;"><span class="pill">${esc(r.action_type)}</span> ${tag} &nbsp;To: <strong>${esc(r.target||'target contact')}</strong>${r.reason?(' · '+esc(r.reason)):''}</div>
+          ${draft}${link}
+          <div class="actions-row" style="margin-top:8px;">${btn}</div>
+          <textarea id="myday-draft-${r.id}" style="display:none;width:100%;height:90px;">${esc((r.outreach_draft||'')+(r.tracked_url?('\n\n'+r.tracked_url):''))}</textarea>
+        </div>`;
+      }).join('');
+      return `<div class="card"><div class="card-head"><span class="account">${acctLink(account)}</span><span class="kpi-sub">${items.length} touch${items.length===1?'':'es'}</span></div>${cards}</div>`;
+    }).join('');
+  }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+async function copyDraft(id){
+  const ta=document.getElementById(`myday-draft-${id}`);
+  const st=document.getElementById(`myday-status-${id}`);
+  try{ await navigator.clipboard.writeText(ta.value); if(st){st.style.color='#16a34a';st.textContent='✓ Copied — paste into your email/DM';} }
+  catch(e){ if(st){st.style.color='#b42318';st.textContent='Copy blocked — select the text below';} ta.style.display='block'; }
+}
+async function approveFromMyDay(id,url){
+  const b=document.getElementById(`myday-approve-${id}`); if(b) b.disabled=true;
+  const st=document.getElementById(`myday-status-${id}`); if(st){st.style.color='#8a93a3';st.textContent='Approving…';}
+  fireWebhook(url);
+  await new Promise(r=>setTimeout(r,800));
+  await loadMyDay();
 }
 
 /* BRIEFS */
@@ -322,15 +576,37 @@ async function loadBriefs(){
   try{
     const rows=await fetchView('console_pending_briefs');
     document.getElementById('briefBadge').textContent=rows.length;
-    await Promise.all(rows.map(async r=>{
-      r.approveUrl = await signedUrl(BRIEF_WEBHOOK,'brief',r.id,'approve');
-      r.rejectUrl  = await signedUrl(BRIEF_WEBHOOK,'brief',r.id,'reject');
-    }));
+    const sigs = await signBatch(rows.flatMap(r=>[
+      {scope:'brief', id:String(r.id), action:'approve'},
+      {scope:'brief', id:String(r.id), action:'reject'}
+    ]));
+    rows.forEach(r=>{
+      r.approveUrl = signedUrlFrom(sigs, BRIEF_WEBHOOK, 'brief', r.id, 'approve');
+      r.rejectUrl  = signedUrlFrom(sigs, BRIEF_WEBHOOK, 'brief', r.id, 'reject');
+    });
     list.innerHTML = rows.length ? rows.map(briefCard).join('') : '<div class="empty">🎉 No briefs awaiting approval.</div>';
   }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
 }
 
 /* ACTIONS */
+/* Which channels still require a per-step human click (campaign-level approval
+   model, 2026-07-02). Read once from app_config; anything NOT in this list
+   auto-approves when due, so if it shows up on this tab it either pre-dates
+   the model or its auto-approval call failed. */
+let gatedChannels = null;
+async function loadGatedChannels(){
+  if(gatedChannels) return gatedChannels;
+  try{
+    const rows = await fetchView('app_config','select=value&key=eq.approval_required_channels');
+    gatedChannels = ((rows[0]||{}).value||'phone,partner').split(',').map(s=>s.trim()).filter(Boolean);
+  }catch(e){ gatedChannels = ['phone','partner']; }
+  return gatedChannels;
+}
+function gatePill(actionType){
+  return (gatedChannels||[]).includes(actionType)
+    ? '<span class="pill urg">needs approval</span>'
+    : '<span class="pill" style="background:#f2f4f7;color:#5b6472;">pre-dates auto-approval</span>';
+}
 const REASONS = [
   { v:'stale_fact', label:'Information was out of date' },
   { v:'wrong_contact', label:'Wrong contact for this account' },
@@ -366,7 +642,7 @@ function card(r){
   const urg = r.when_urgency ? `<span class="pill urg">${esc(r.when_urgency)}</span>` : '';
   const brief = r.brief_s3_url ? `<a class="brief" href="${esc(r.brief_s3_url)}" target="_blank">View brief ↗</a>` : '';
   return `<div class="card" id="action-${r.id}">
-    <div class="card-head"><span class="account">${acctLink(r.account)}</span><span>${urg}<span class="pill">${esc(r.action_type)}</span></span></div>
+    <div class="card-head"><span class="account">${acctLink(r.account)}</span><span>${urg}<span class="pill">${esc(r.action_type)}</span> ${gatePill(r.action_type)}</span></div>
     <div class="meta">Stage: ${esc(r.when_stage||'—')} &nbsp;·&nbsp; Created: ${esc(r.created_sgt||'—')} &nbsp;·&nbsp; Metric: ${esc(r.predicted_metric||'—')} &nbsp;·&nbsp; ${brief}</div>
     <div class="hyp">${esc(r.hypothesis)}</div>
     <div class="actions-row">
@@ -380,11 +656,16 @@ async function loadReview(){
   const list=document.getElementById('list');
   try{
     const rows=await fetchView('console_pending_actions');
+    await loadGatedChannels();
     document.getElementById('reviewBadge').textContent=rows.length;
-    await Promise.all(rows.map(async r=>{
-      r.approveUrl = await signedUrl(ACTION_WEBHOOK,'action',r.id,'approve');
-      r.rejectUrl  = await signedUrl(ACTION_WEBHOOK,'action',r.id,'reject');
-    }));
+    const sigs = await signBatch(rows.flatMap(r=>[
+      {scope:'action', id:String(r.id), action:'approve'},
+      {scope:'action', id:String(r.id), action:'reject'}
+    ]));
+    rows.forEach(r=>{
+      r.approveUrl = signedUrlFrom(sigs, ACTION_WEBHOOK, 'action', r.id, 'approve');
+      r.rejectUrl  = signedUrlFrom(sigs, ACTION_WEBHOOK, 'action', r.id, 'reject');
+    });
     list.innerHTML = rows.length ? rows.map(card).join('') : '<div class="empty">🎉 Nothing pending — all caught up.</div>';
   }catch(err){ list.innerHTML='<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
 }
@@ -420,9 +701,10 @@ async function loadCampaigns(){
       // Adaptive/Adaptive reason: Phase 4 adaptive decision engine — set once
       // an outcome is measured (escalated/paused/stopped/reviewed), null
       // until then.
-      columns:[{name:'Account',formatter:cell=>gridjs.html(acctLink(cell))},'Step #','Delay (d)','Scheduled','Action type','Target','Status','Channel','Why','Adaptive','Adaptive reason'],
+      columns:[{name:'Account',formatter:cell=>gridjs.html(acctLink(cell))},'Step #','Delay (d)','Scheduled','Action type','Target','Status','Channel','Why','Adaptive','Adaptive reason',
+        {name:'Draft',formatter:c=>{const t=(c||'').toString();const e=x=>x.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');return gridjs.html(t?'<span title="'+e(t)+'" style="cursor:help;">'+e(t.length>70?t.slice(0,70)+'…':t)+'</span>':'—');}}],
       data: steps.map(s=>[s.account, s.step_number, s.delay_days, s.scheduled_sgt||'—', s.action_type||'—', s.target||'—', s.status,
-        s.channel_source==='ai' ? 'AI' : 'Template', s.channel_reco_reason||'—', s.adaptive_action||'—', s.adaptive_reason||'—']),
+        s.channel_source==='ai' ? 'AI' : 'Template', s.channel_reco_reason||'—', s.adaptive_action||'—', s.adaptive_reason||'—', s.outreach_draft||'']),
       search:true, sort:true, pagination:{limit:10}
     }).render(document.getElementById('cadenceStepTable'));
   }catch(err){ showError('campaignTable',err); showError('cadenceStepTable',err); }
@@ -458,6 +740,7 @@ async function loadAccount360(account){
     ]);
     const score = scoreRows[0] || {};
     const rejections = actions.filter(a=>a.status==='cancelled');
+    window.__acct360 = { account, score, campaigns, actions, decisions, engagement };
 
     body.innerHTML = `
       <div class="kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
@@ -515,6 +798,36 @@ async function loadAccount360(account){
       }).render(engEl);
     } else engEl.innerHTML = '<div class="empty">No engagement events recorded yet for this account.</div>';
   }catch(err){ body.innerHTML = '<div class="err">Failed to load: '+esc(err.message||err)+'</div>'; }
+}
+/* Pre-call prep: turn the loaded Account 360 data into a plain-text summary
+   a rep can paste into notes, an email, or a CRM comment. */
+function copyAcct360Summary(){
+  const d=window.__acct360; const st=document.getElementById('acct360CopyStatus');
+  if(!d){ if(st){st.style.color='#b42318';st.textContent='Load an account first.';} return; }
+  const L=[];
+  L.push(`ACCOUNT SUMMARY — ${d.account}`);
+  L.push(`Generated ${new Date().toLocaleString()}`);
+  L.push('');
+  L.push(`Score: ${d.score.score ?? '—'} (hard ${d.score.hard_points??0} / soft ${d.score.soft_points??0}) · Engagement events: ${d.score.engagement_events??0} · Last activity: ${d.score.last_event?new Date(d.score.last_event).toLocaleDateString():'—'}`);
+  L.push('');
+  L.push(`CAMPAIGNS (${d.campaigns.length})`);
+  if(d.campaigns.length) d.campaigns.forEach(c=>L.push(`- ${c.template_key||'campaign'} · ${c.status}${c.completion_reason?(' ('+c.completion_reason+')'):''} · ${+c.completed_steps||0}/${+c.total_steps||0} steps · SF sync: ${c.salesforce_sync_status||'—'}${c.opportunity_status&&c.opportunity_status!=='not_offered'?(' · Opportunity: '+c.opportunity_status):''}`));
+  else L.push('- none');
+  L.push('');
+  L.push('RECENT ACTIONS');
+  if(d.actions.length) d.actions.slice(0,10).forEach(a=>L.push(`- ${a.created_at?new Date(a.created_at).toLocaleDateString():'—'} · ${a.action_type||'—'} · ${a.status}${a.outcome_result?(' · outcome: '+a.outcome_result):''}${a.target?(' · to '+a.target):''}`));
+  else L.push('- none yet');
+  L.push('');
+  L.push('AI REASONING');
+  if(d.decisions.length) d.decisions.slice(0,5).forEach(x=>L.push(`- ${x.decided_at?new Date(x.decided_at).toLocaleDateString():'—'} · ${dtLabel(x.decision_type)} · ${x.decision_label||x.action_type||'—'}${x.reason?(' — '+x.reason):''}`));
+  else L.push('- none recorded yet');
+  L.push('');
+  L.push('RECENT ENGAGEMENT');
+  if(d.engagement.length) d.engagement.slice(0,8).forEach(e=>L.push(`- ${e.occurred_at?new Date(e.occurred_at).toLocaleDateString():'—'} · ${e.event_type||'—'} (${e.source||'—'})`));
+  else L.push('- none recorded yet');
+  navigator.clipboard.writeText(L.join('\n'))
+    .then(()=>{ if(st){st.style.color='#16a34a';st.textContent='✓ Copied — paste into notes or email';} })
+    .catch(()=>{ if(st){st.style.color='#b42318';st.textContent='Copy blocked by browser';} });
 }
 async function loadAiDecisions(){
   try{
@@ -585,11 +898,21 @@ async function loadChannelSource(){
     // outperform the campaign-template fallback? Expect thin/empty bars
     // until enough actions reach executed/measured to be meaningful.
     const rows=await fetchView('dashboard_channel_source_performance');
-    const order={ai:0,template:1}; rows.sort((a,b)=>(order[a.channel_source]??2)-(order[b.channel_source]??2));
-    const label=s=>s==='ai'?'AI-recommended':(s==='template'?'Template fallback':(s||'—'));
+    const order={explore:0,ai:1,template:2}; rows.sort((a,b)=>(order[a.channel_source]??3)-(order[b.channel_source]??3));
+    const label=s=>s==='explore'?'Exploration (random)':(s==='ai'?'AI-recommended':(s==='template'?'Template fallback':(s||'—')));
     makeChart('channelSourceChart',{type:'bar',data:{labels:rows.map(r=>label(r.channel_source)),datasets:[{label:'Met',data:rows.map(r=>+r.met||0),backgroundColor:palette[2]},{label:'Measured',data:rows.map(r=>+r.measured||0),backgroundColor:palette[6]},{label:'Executed',data:rows.map(r=>+r.executed||0),backgroundColor:palette[1]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
     const tt=rows.reduce((s,r)=>s+(+r.measured||0),0);
-    document.getElementById('channelSourceNote').textContent = tt===0 ? 'No outcomes measured yet for either source — too early to compare.' : '';
+    const ex=rows.find(r=>r.channel_source==='explore');
+    const nonEx=rows.filter(r=>r.channel_source!=='explore');
+    const nonExMet=nonEx.reduce((s,r)=>s+(+r.met||0),0), nonExMeas=nonEx.reduce((s,r)=>s+(+r.measured||0),0);
+    let csNote='';
+    if(tt===0){ csNote='No outcomes measured yet for any source — too early to compare.'; }
+    else if(ex && (+ex.measured||0)>0){
+      const exWin=Math.round(100*(+ex.met||0)/(+ex.measured));
+      const nonWin=nonExMeas?Math.round(100*nonExMet/nonExMeas):null;
+      csNote='Exploration arm: '+(+ex.executed||0)+' executed, '+exWin+'% win rate'+(nonWin!=null?' vs '+nonWin+'% for AI/template (exploit).':'.')+' The random explore arm is what the MMM fits for a causal channel estimate (mmm_regression.py --explore-only).';
+    } else if(ex){ csNote='Exploration arm live ('+(+ex.executed||0)+' executed) — no explore outcomes measured yet.'; }
+    document.getElementById('channelSourceNote').textContent = csNote;
   }catch(err){ showError('channelSourceWrap',err); }
 }
 async function loadAttribution(){
@@ -629,8 +952,26 @@ async function loadEnrichment(){
     document.getElementById('kpiEnrichTotal').textContent=tot;
   }catch(err){}
 }
+async function loadMmmReadiness(){
+  try{
+    const rows=await fetchView('dashboard_mmm_readiness','order=sort_order');
+    const box=document.getElementById('mmmReadiness');
+    if(!rows.length){ box.innerHTML='<span class="kpi-sub">No funnel stages found.</span>'; return; }
+    box.innerHTML=rows.map(r=>{
+      const pct=Math.min(100,+r.readiness_pct||0);
+      const bar=`<div style="background:#eef2f6;border-radius:6px;height:10px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:${pct>=100?'#16a34a':'#2563eb'};"></div></div>`;
+      return `<div style="display:grid;grid-template-columns:170px 1fr 230px;gap:12px;align-items:center;margin:7px 0;">
+        <span style="font-size:13px;font-weight:600;">${esc(r.label||r.funnel_stage)}</span>${bar}
+        <span class="kpi-sub">${r.labeled_rows}/${r.target_rows} labeled · ${r.met} met / ${r.missed} missed · ${r.open} open</span></div>`;
+    }).join('');
+    const total=rows.reduce((s,r)=>s+(+r.labeled_rows||0),0);
+    document.getElementById('mmmReadinessNote').textContent = total===0
+      ? 'The regression trains itself from this matrix as campaigns resolve — 0 labeled rows so far (pre-traffic). Target = 10 labeled rows per channel used at the stage (min 30). Run mmm/mmm_regression.py once a stage fills.'
+      : 'Target = 10 labeled rows per channel used at the stage (min 30). Run mmm/mmm_regression.py when a stage reaches 100%.';
+  }catch(err){ showError('mmmReadiness',err); }
+}
 async function loadDashboard(){
-  await Promise.all([loadKpisAndFunnel(),loadDist('dashboard_coverage','coverageChart','coverageWrap',palette[2],false),loadDist('dashboard_trigger_type','triggerChart','triggerWrap',palette[3],true),loadTrend(),loadEnrichment(),loadDist('dashboard_by_industry','industryChart','industryWrap',palette[5],true),loadDist('dashboard_by_theme','themeChart','themeWrap',palette[6],true),loadDist('dashboard_by_trigger','triggerNotesChart','triggerNotesWrap',palette[3],true),loadActionFunnel(),loadWinrate(),loadChannel(),loadChannelSource(),loadAttribution(),loadCorrectionRate(),loadRejections(),loadErrorTable()]);
+  await Promise.all([loadKpisAndFunnel(),loadDist('dashboard_coverage','coverageChart','coverageWrap',palette[2],false),loadDist('dashboard_trigger_type','triggerChart','triggerWrap',palette[3],true),loadTrend(),loadEnrichment(),loadDist('dashboard_by_industry','industryChart','industryWrap',palette[5],true),loadDist('dashboard_by_theme','themeChart','themeWrap',palette[6],true),loadDist('dashboard_by_trigger','triggerNotesChart','triggerNotesWrap',palette[3],true),loadActionFunnel(),loadWinrate(),loadChannel(),loadChannelSource(),loadAttribution(),loadCorrectionRate(),loadRejections(),loadErrorTable(),loadMmmReadiness()]);
 }
 
 /* SETTINGS */
@@ -641,9 +982,33 @@ async function loadSettings(){
     const map={}; rows.forEach(r=>map[r.key]=r.value);
     document.getElementById('cfgUrl').value=map.tracking_base_url||'';
     document.getElementById('cfgGa4').value=map.ga4_property_id||'';
+    document.getElementById('cfgWhenUrl').value=map.when_engine_url||'';
+    document.getElementById('cfgRepEmail').value=map.rep_notification_email||'';
+    document.getElementById('cfgManagerEmail').value=map.manager_report_email||'';
+    setSecretState('cfgSmartleadState', map.smartlead_api_key);
+    setSecretState('cfgHeyreachState', map.heyreach_api_key);
+    document.getElementById('cfgExpiry').value=map.recommendation_expiry_days||'';
+    await renderChannelChecklist(map.approval_required_channels||'');
     if(s) s.textContent='';
   }catch(err){ if(s){ s.style.color='#b42318'; s.textContent='Couldn’t load: '+(err.message||err); } }
 }
+async function renderChannelChecklist(csv){
+  const box=document.getElementById('cfgChannelsList'); if(!box) return;
+  const selected=new Set(csv.split(',').map(x=>x.trim()).filter(Boolean));
+  try{
+    const chans=await fetchView('action_channels','select=key,label,description,is_high_touch&order=sort_order');
+    box.innerHTML=chans.map(c=>{
+      const checked=selected.has(c.key)?'checked':'';
+      const touch=c.is_high_touch?' · high-touch':'';
+      return `<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;">`
+        +`<input type="checkbox" class="cfgChan" value="${c.key}" ${checked} disabled style="margin-top:3px;">`
+        +`<span><span style="font-weight:600;">${c.label}</span><span class="kpi-sub">${touch}</span><br>`
+        +`<span class="kpi-sub">${c.description||''}</span></span></label>`;
+    }).join('');
+  }catch(err){ box.innerHTML='<span class="kpi-sub">Couldn’t load channels: '+(err.message||err)+'</span>'; }
+}
+function setSecretState(id,val){ const e=document.getElementById(id); if(!e) return; if(val){ e.textContent='· configured'; e.style.color='#16a34a'; } else { e.textContent='· not set'; e.style.color='#8a93a3'; } }
+async function copyText(t,btn){ try{ await navigator.clipboard.writeText(t); if(btn){ const o=btn.textContent; btn.textContent='Copied'; setTimeout(()=>{ btn.textContent=o; },1200); } }catch(e){} }
 async function patchConfig(key,value){
   const res=await fetch(`${SUPABASE_URL}/rest/v1/app_config?key=eq.${encodeURIComponent(key)}`,{
     method:'PATCH',
@@ -664,10 +1029,10 @@ async function saveSettings(){
   }catch(err){ s.style.color='#b42318'; s.textContent='Save failed: '+(err.message||err); }
 }
 
-let activeTab='briefs';
+let activeTab='myday';
 function showTab(t){
   activeTab=t;
-  ['dashboard','briefs','review','campaigns','account360','aidecisions','settings'].forEach(x=>{
+  ['myday','dashboard','briefs','review','campaigns','quicklog','account360','aidecisions','settings'].forEach(x=>{
     document.getElementById('tab-'+x).classList.toggle('active',x===t);
     document.getElementById('tabbtn-'+x).classList.toggle('active',x===t);
   });
@@ -676,16 +1041,18 @@ function showTab(t){
 }
 async function refreshActive(){
   const btn=document.getElementById('refreshBtn'); btn.disabled=true; btn.textContent='Loading…';
-  if (activeTab==='briefs') await loadBriefs();
+  if (activeTab==='myday') await loadMyDay();
+  else if (activeTab==='briefs') await loadBriefs();
   else if (activeTab==='review') await loadReview();
   else if (activeTab==='campaigns') await loadCampaigns();
+  else if (activeTab==='quicklog') await loadQuickLog();
   else if (activeTab==='account360') await loadAccount360();
   else if (activeTab==='aidecisions') await loadAiDecisions();
   else await loadDashboard();
   btn.disabled=false; btn.textContent='Refresh';
   document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString();
 }
-(async ()=>{ await Promise.all([loadBriefs(), loadReview(), loadCampaigns(), loadDashboard(), loadAccountPicker(), loadAiDecisions()]); document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString(); })();
+(async ()=>{ await Promise.all([loadMyDay(), loadBriefs(), loadReview(), loadCampaigns(), loadQuickLog(), loadDashboard(), loadAccountPicker(), loadAiDecisions()]); document.getElementById('lastUpdated').textContent='Last updated '+new Date().toLocaleTimeString(); })();
 </script>
 
 </body>

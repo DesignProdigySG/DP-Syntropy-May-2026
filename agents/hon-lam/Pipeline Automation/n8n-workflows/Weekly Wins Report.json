@@ -1,0 +1,211 @@
+{
+ "name": "Weekly Wins Report",
+ "nodes": [
+  {
+   "id": "3844b8fe-1495-4252-9dfb-508dfb772fd7",
+   "name": "Friday 01:00 UTC",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "weeks",
+       "triggerAtDay": [
+        5
+       ],
+       "triggerAtHour": 1,
+       "triggerAtMinute": 0
+      }
+     ]
+    }
+   },
+   "typeVersion": 1.3
+  },
+  {
+   "id": "6aa67a51-95cf-4c64-9d4b-6dc50b6759c4",
+   "name": "Get Manager Email",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    224,
+    0
+   ],
+   "parameters": {
+    "query": "SELECT coalesce((SELECT value FROM app_config WHERE key='manager_report_email'), '') AS manager_email;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "a676f75c-0827-4dfe-ac06-1e8df9ca4e46",
+   "name": "Manager Email Set?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    448,
+    0
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "loose"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty",
+        "singleValue": true
+       },
+       "leftValue": "={{ ($json.manager_email || \"\").trim() }}"
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.2
+  },
+  {
+   "id": "79eac248-838a-4b9b-a99c-3d44c29e6538",
+   "name": "Gather Weekly Stats",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    672,
+    0
+   ],
+   "parameters": {
+    "query": "SELECT c.name AS client_name,\n  (SELECT count(*) FROM pipeline_runs p WHERE p.client_id = c.id AND p.human_approved AND p.run_at > now() - interval '7 days') AS briefs_approved,\n  (SELECT count(*) FROM actions a WHERE a.client_id = c.id AND a.status = 'executed' AND a.executed_at > now() - interval '7 days') AS touches_executed,\n  (SELECT count(*) FROM engagement_events e WHERE e.client_id = c.id AND e.event_type IN ('email_reply','linkedin_reply') AND e.occurred_at > now() - interval '7 days') AS replies,\n  (SELECT count(*) FROM engagement_events e WHERE e.client_id = c.id AND e.event_type = 'meeting_booked' AND e.occurred_at > now() - interval '7 days') AS meetings_booked,\n  (SELECT count(*) FROM engagement_events e WHERE e.client_id = c.id AND e.occurred_at > now() - interval '7 days') AS total_engagement,\n  (SELECT count(*) FROM campaigns cam WHERE cam.client_id = c.id AND cam.completion_reason = 'goal_met' ) AS campaigns_goal_met,\n  (SELECT count(*) FROM campaigns cam WHERE cam.client_id = c.id AND cam.opportunity_status NOT IN ('not_offered') ) AS opportunities_in_play\nFROM clients c\nWHERE c.status = 'active'\nORDER BY c.id;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "ab45ba58-b97b-44c4-8124-5995ce0f5fdd",
+   "name": "Build Report",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    896,
+    0
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const rows = $input.all().map(i => i.json);\nconst esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst cells = 'padding:8px 12px;border-bottom:1px solid #e4e7ec;font-size:13px;';\nconst tr = r => `<tr><td style=\"${cells}\"><strong>${esc(r.client_name)}</strong></td><td style=\"${cells}\">${r.briefs_approved}</td><td style=\"${cells}\">${r.touches_executed}</td><td style=\"${cells}\">${r.replies}</td><td style=\"${cells}\">${r.meetings_booked}</td><td style=\"${cells}\">${r.total_engagement}</td><td style=\"${cells}\">${r.campaigns_goal_met}</td><td style=\"${cells}\">${r.opportunities_in_play}</td></tr>`;\nconst th = t => `<th style=\"padding:8px 12px;text-align:left;font-size:11px;color:#5b6472;border-bottom:2px solid #e4e7ec;\">${t}</th>`;\nconst totals = rows.reduce((acc, r) => { for (const k of ['briefs_approved','touches_executed','replies','meetings_booked','total_engagement']) acc[k] = (acc[k]||0) + Number(r[k]||0); return acc; }, {});\nconst html = `<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:720px;color:#1f2430;\">\n<h2 style=\"font-size:18px;margin:0 0 4px;\">Weekly pipeline report</h2>\n<p style=\"color:#5b6472;font-size:13px;margin:0 0 14px;\">Last 7 days · ${rows.length} active client${rows.length===1?'':'s'} · ${totals.touches_executed||0} touches executed · ${totals.replies||0} replies · ${totals.meetings_booked||0} meetings booked</p>\n<table style=\"border-collapse:collapse;width:100%;\">\n<tr>${th('Client')}${th('Briefs approved')}${th('Touches')}${th('Replies')}${th('Meetings')}${th('All engagement')}${th('Goals met')}${th('Opps in play')}</tr>\n${rows.map(tr).join('')}\n</table>\n<p style=\"color:#8a93a3;font-size:11px;margin-top:14px;\">Sent every Friday by the Weekly Wins Report workflow · goal-met and opportunity columns are all-time · detail in the Pipeline Control Tower dashboard.</p>\n</div>`;\nreturn [{ json: { html, sendTo: ($('Get Manager Email').first().json.manager_email || '').trim() } }];"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "0ec2acb5-4e12-44eb-99a3-b9197c1f22b9",
+   "name": "Send Report",
+   "type": "n8n-nodes-base.gmail",
+   "position": [
+    1120,
+    0
+   ],
+   "webhookId": "cb8a26d8-2186-458d-95a4-d8192168734f",
+   "parameters": {
+    "sendTo": "={{ $json.sendTo }}",
+    "message": "={{ $json.html }}",
+    "options": {},
+    "subject": "=Weekly pipeline report — {{ $now.format('dd LLL yyyy') }}",
+    "resource": "message",
+    "emailType": "html",
+    "operation": "send"
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "vKMX1dZQWsi80BVz",
+     "name": "Gmail OAuth2 API"
+    }
+   },
+   "executeOnce": true,
+   "typeVersion": 2.2
+  }
+ ],
+ "connections": {
+  "Build Report": {
+   "main": [
+    [
+     {
+      "node": "Send Report",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Friday 01:00 UTC": {
+   "main": [
+    [
+     {
+      "node": "Get Manager Email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Manager Email": {
+   "main": [
+    [
+     {
+      "node": "Manager Email Set?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Manager Email Set?": {
+   "main": [
+    [
+     {
+      "node": "Gather Weekly Stats",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gather Weekly Stats": {
+   "main": [
+    [
+     {
+      "node": "Build Report",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "availableInMCP": true,
+  "executionOrder": "v1",
+  "executionTimeout": 300
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "kA9tQQe4tsFTjbhu",
+  "activeAtExport": true
+ }
+}

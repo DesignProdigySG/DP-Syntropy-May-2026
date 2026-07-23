@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DP Syntropy — Client Onboarding</title>
+<style>
+  :root { --bg:#0f1117; --card:#181b23; --border:#2a2f3c; --text:#e6e8ee; --muted:#8b91a1; --accent:#4f8cff; --ok:#3ecf8e; --err:#ff6b6b; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:36px; width:100%; max-width:520px; }
+  h1 { font-size:1.35rem; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:.88rem; margin-bottom:26px; line-height:1.5; }
+  label { display:block; font-size:.8rem; color:var(--muted); margin:16px 0 6px; }
+  label .req { color:var(--accent); }
+  input, textarea { width:100%; background:#10131a; border:1px solid var(--border); border-radius:8px; padding:10px 12px; color:var(--text); font-size:.92rem; font-family:inherit; }
+  input:focus, textarea:focus { outline:none; border-color:var(--accent); }
+  textarea { resize:vertical; min-height:64px; }
+  button { width:100%; margin-top:26px; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:12px; font-size:.95rem; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  #result { margin-top:18px; padding:12px 14px; border-radius:8px; font-size:.88rem; line-height:1.5; display:none; }
+  #result.ok { display:block; background:rgba(62,207,142,.1); border:1px solid var(--ok); color:var(--ok); }
+  #result.err { display:block; background:rgba(255,107,107,.1); border:1px solid var(--err); color:var(--err); }
+  .foot { margin-top:22px; font-size:.75rem; color:var(--muted); line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Client Onboarding</h1>
+  <p class="sub">One form, five minutes. After this, the pipeline runs itself — briefs arrive for one-click approval and a single daily digest lists every touch with a ready-to-send draft.</p>
+
+  <form id="f">
+    <label>Client / company name <span class="req">*</span></label>
+    <input name="client_name" required placeholder="Acme Pte Ltd">
+
+    <label>Rep email (digest + approvals go here) <span class="req">*</span></label>
+    <input name="rep_email" type="email" required placeholder="rep@acme.com">
+
+    <label>Setup code <span class="req">*</span></label>
+    <input name="setup_code" required placeholder="provided by Design Prodigy">
+
+    <label>Calendar booking link (optional)</label>
+    <input name="calendar_link" placeholder="https://calendly.com/...">
+
+    <label>Sending account (optional)</label>
+    <input name="sender_account" placeholder="e.g. outreach@acme.com / LinkedIn seat">
+
+    <label>Notes (optional)</label>
+    <textarea name="notes" placeholder="Target industries, exclusions, tone preferences…"></textarea>
+
+    <button type="submit" id="btn">Configure pipeline</button>
+  </form>
+  <div id="result"></div>
+  <p class="foot">Submitting sets your notification email and registers the engagement. Design Prodigy handles everything else — accounts, tracking, CRM sync.</p>
+</div>
+
+<script>
+const WEBHOOK = 'https://designprodigy.app.n8n.cloud/webhook/client-onboarding';
+const f = document.getElementById('f'), btn = document.getElementById('btn'), out = document.getElementById('result');
+f.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  btn.disabled = true; btn.textContent = 'Configuring…'; out.className = ''; out.style.display = 'none';
+  const data = Object.fromEntries(new FormData(f).entries());
+  try {
+    const r = await fetch(WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const text = await r.text();
+    const ok = text.startsWith('✓');
+    out.textContent = text || (r.ok ? 'Done.' : 'Something went wrong — please try again.');
+    out.className = ok ? 'ok' : 'err';
+    if (ok) f.reset();
+  } catch (err) {
+    out.textContent = 'Could not reach the onboarding service: ' + err.message;
+    out.className = 'err';
+  }
+  btn.disabled = false; btn.textContent = 'Configure pipeline';
+});
+</script>
+</body>
+</html>

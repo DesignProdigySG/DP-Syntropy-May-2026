@@ -1,0 +1,303 @@
+{
+ "name": "LinkedIn Post Generator",
+ "nodes": [
+  {
+   "id": "8d1e0fa2-296b-443f-9547-c1876ff7faf7",
+   "name": "Generate Post Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "position": [
+    0,
+    112
+   ],
+   "webhookId": "0c94fcf0-9bab-4e05-8669-236a98df704d",
+   "parameters": {
+    "path": "generate-linkedin-post",
+    "options": {},
+    "httpMethod": "POST",
+    "responseMode": "responseNode"
+   },
+   "typeVersion": 2.1
+  },
+  {
+   "id": "21182070-eb28-4a97-9afd-d8fe350fe0df",
+   "name": "Build Post Prompt",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    224,
+    112
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const NL = String.fromCharCode(10);\nconst b = ($input.first().json.body) || $input.first().json || {};\nconst g = (k, d = '') => (b[k] == null || b[k] === '' ? d : String(b[k]));\nconst topic = g('topic', g('theme', ''));\nconst account = g('account', '');\nconst industry = g('industry', '');\nconst theme = g('theme', '');\nconst objective = g('objective', '');\nconst url = g('tracked_url', '');\nconst lines = [\n  'Write a LinkedIn post (broadcast, for a feed — not a 1:1 message).',\n  topic ? ('Topic: ' + topic) : 'Topic: a relevant B2B insight',\n  account ? ('Context — account/theme this relates to: ' + account + (industry ? (' (industry: ' + industry + ')') : '')) : '',\n  theme ? ('Angle/theme: ' + theme) : '',\n  objective ? ('Business objective it should support: ' + objective) : '',\n  url ? ('Include this link naturally near the end: ' + url) : '',\n  'Write the post now.'\n].filter(Boolean);\nreturn [{ json: { prompt: lines.join(NL), topic: topic, account: account, tracked_url: url } }];"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "c53efb13-2b19-4a12-998a-67c0073b0704",
+   "name": "Post Writer AI",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "position": [
+    448,
+    112
+   ],
+   "parameters": {
+    "text": "={{ $json.prompt }}",
+    "options": {
+     "systemMessage": "You are an expert B2B LinkedIn ghostwriter for DP Syntropy. Write ONE LinkedIn post for a company/founder feed (broadcast, not a DM). Strong first-line hook, a genuinely useful insight or point of view grounded in the given topic/account context, and one soft call-to-action. Under ~1300 characters. Plain, human, credible — no hype, no emojis, no more than 2-3 hashtags, no \"I hope this finds you well\". Output ONLY the post text, nothing else."
+    },
+    "promptType": "define"
+   },
+   "typeVersion": 3.1
+  },
+  {
+   "id": "9c72483d-54dc-48ef-a7ee-a287901240f8",
+   "name": "OpenAI Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+   "position": [
+    528,
+    336
+   ],
+   "parameters": {
+    "model": {
+     "__rl": true,
+     "mode": "list",
+     "value": "gpt-5-mini"
+    },
+    "options": {}
+   },
+   "credentials": {
+    "openAiApi": {
+     "id": "dJxyXpOYQSqrDm62",
+     "name": "OpenAI account"
+    }
+   },
+   "typeVersion": 1.3
+  },
+  {
+   "id": "1e11c1e9-37d6-443b-a4cf-0ceeefa198dd",
+   "name": "Prep Insert",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    800,
+    112
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst out = $json.output || '';\nconst bp = $('Build Post Prompt').first().json;\nreturn [{ json: { body_esc: esc(out), account_esc: esc(bp.account), topic_esc: esc(bp.topic), url_esc: esc(bp.tracked_url) } }];"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "cfc2c2d3-65a2-4f9e-92d0-30abf1edaec9",
+   "name": "Insert Post",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1024,
+    112
+   ],
+   "parameters": {
+    "query": "=INSERT INTO linkedin_posts (account, topic, post_body, tracked_url, status) VALUES (NULLIF('{{ $json.account_esc }}',''), NULLIF('{{ $json.topic_esc }}',''), '{{ $json.body_esc }}', NULLIF('{{ $json.url_esc }}',''), 'pending_approval') RETURNING id, post_body, account, topic, tracked_url;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "2eed4fbf-5d2d-44df-9592-3006421a7311",
+   "name": "Get HMAC Secret",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1248,
+    112
+   ],
+   "parameters": {
+    "query": "select (select value from app_config where key='approval_hmac_secret') as value, (select value from app_config where key='rep_notification_email') as rep_email;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "436100a3-227c-45a1-a120-57f3e2f96534",
+   "name": "Build Approval Email",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    1472,
+    112
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nconst row = $('Insert Post').first().json;\nconst id = row.id;\nfunction sign(a) { return crypto.createHmac('sha256', SECRET).update('linkedin_post:' + id + ':' + a).digest('hex').slice(0, 32); }\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/linkedin-post-approval';\nconst NL = String.fromCharCode(10);\nconst subject = 'LinkedIn post ready for approval' + (row.account ? (' — ' + row.account) : '');\nconst parts = [];\nparts.push('Draft LinkedIn post' + (row.topic ? (' on: ' + row.topic) : '') + (row.account ? (' (account: ' + row.account + ')') : '') + ':');\nparts.push('');\nparts.push(row.post_body || '');\nif (row.tracked_url) parts.push('Link to include: ' + row.tracked_url);\nparts.push('');\nparts.push('APPROVE (you will then post it to LinkedIn yourself): ' + base + '?id=' + id + '&action=approve&sig=' + sign('approve'));\nparts.push('REJECT: ' + base + '?id=' + id + '&action=reject&sig=' + sign('reject'));\nreturn [{ json: { subject: subject, message: parts.join(NL) } }];"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "bb69ea6d-0863-444b-81d1-51d1edf45985",
+   "name": "Send Approval Email",
+   "type": "n8n-nodes-base.gmail",
+   "position": [
+    1696,
+    112
+   ],
+   "webhookId": "8e7feadb-a80b-447b-af69-6b7489111e1a",
+   "parameters": {
+    "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
+    "message": "={{ $json.message }}",
+    "options": {},
+    "subject": "={{ $json.subject }}",
+    "resource": "message",
+    "emailType": "text",
+    "operation": "send"
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "vKMX1dZQWsi80BVz",
+     "name": "Gmail OAuth2 API"
+    }
+   },
+   "typeVersion": 2.2
+  },
+  {
+   "id": "04c6514f-802a-49d3-91da-c4e66373c700",
+   "name": "Respond Pending",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    1920,
+    112
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "json",
+    "responseBody": "={{ { \"status\": \"pending_approval\", \"id\": $(\"Insert Post\").first().json.id } }}"
+   },
+   "typeVersion": 1.5
+  }
+ ],
+ "connections": {
+  "Insert Post": {
+   "main": [
+    [
+     {
+      "node": "Get HMAC Secret",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prep Insert": {
+   "main": [
+    [
+     {
+      "node": "Insert Post",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Post Writer AI": {
+   "main": [
+    [
+     {
+      "node": "Prep Insert",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get HMAC Secret": {
+   "main": [
+    [
+     {
+      "node": "Build Approval Email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Post Prompt": {
+   "main": [
+    [
+     {
+      "node": "Post Writer AI",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "OpenAI Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Post Writer AI",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Approval Email": {
+   "main": [
+    [
+     {
+      "node": "Respond Pending",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Approval Email": {
+   "main": [
+    [
+     {
+      "node": "Send Approval Email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Generate Post Webhook": {
+   "main": [
+    [
+     {
+      "node": "Build Post Prompt",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "binaryMode": "separate",
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "timeSavedMode": "fixed",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "Tz9PbNnFG1KRWHqK",
+  "activeAtExport": true
+ }
+}

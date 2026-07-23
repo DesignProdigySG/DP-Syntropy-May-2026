@@ -1,0 +1,148 @@
+{
+ "name": "pg_cron Failure Alert",
+ "nodes": [
+  {
+   "id": "39a25a67-a0ee-402d-92da-13c2bf0d5158",
+   "name": "Daily 08:15",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "days",
+       "triggerAtHour": 8,
+       "triggerAtMinute": 15
+      }
+     ]
+    }
+   },
+   "typeVersion": 1.3
+  },
+  {
+   "id": "7472ccc1-d5a6-4104-8944-6c27fbd21e72",
+   "name": "Find Failed Cron Runs",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    220,
+    0
+   ],
+   "parameters": {
+    "query": "select j.jobname, r.status, coalesce(r.return_message, '') as return_message, r.start_time from cron.job_run_details r join cron.job j on j.jobid = r.jobid where r.status = 'failed' and r.start_time >= now() - interval '24 hours' order by r.start_time desc",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "db1d3887-227e-424a-859e-e4d350dcf40d",
+   "name": "Log Cron Failure",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    440,
+    0
+   ],
+   "parameters": {
+    "query": "insert into pipeline_errors (occurred_at, company, phase, node_name, error_msg, resolved) select $1::timestamptz, 'pg_cron', 'pg-cron', $2, $3, false where not exists (select 1 from pipeline_errors where phase = 'pg-cron' and node_name = $2 and occurred_at = $1::timestamptz) returning id",
+    "options": {
+     "queryReplacement": "={{ [$json.start_time, $json.jobname, $json.return_message] }}"
+    },
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "a6bd1d4e-6565-498b-818a-068d5a7745af",
+   "name": "Alert Cron Failures",
+   "type": "n8n-nodes-base.gmail",
+   "position": [
+    660,
+    0
+   ],
+   "webhookId": "98029200-b233-4286-b9ce-4479277c2040",
+   "parameters": {
+    "sendTo": "honlamchia@gmail.com",
+    "message": "=The following pg_cron job runs failed in the last 24 hours:\n\n{{ $('Find Failed Cron Runs').all().map(i => '- ' + i.json.jobname + ' at ' + i.json.start_time + ': ' + (i.json.return_message || 'no message')).join('\\n') }}\n\nThese failures do NOT reach the n8n Error Workflow — they only appear in cron.job_run_details. Check Supabase (cron.job_run_details) for full details. Logged to pipeline_errors with phase 'pg-cron'.",
+    "options": {
+     "appendAttribution": false
+    },
+    "subject": "=⚠️ pg_cron failure — {{ $('Find Failed Cron Runs').all().length }} failed job run(s) in the last 24h",
+    "resource": "message",
+    "emailType": "text",
+    "operation": "send"
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "vKMX1dZQWsi80BVz",
+     "name": "Gmail OAuth2 API"
+    }
+   },
+   "executeOnce": true,
+   "typeVersion": 2.2
+  }
+ ],
+ "connections": {
+  "Daily 08:15": {
+   "main": [
+    [
+     {
+      "node": "Find Failed Cron Runs",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Cron Failure": {
+   "main": [
+    [
+     {
+      "node": "Alert Cron Failures",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Find Failed Cron Runs": {
+   "main": [
+    [
+     {
+      "node": "Log Cron Failure",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "binaryMode": "separate",
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "timeSavedMode": "fixed",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "MJHuNccpX2QURdBe",
+  "activeAtExport": true
+ }
+}

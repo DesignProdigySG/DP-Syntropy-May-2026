@@ -1,0 +1,238 @@
+{
+ "name": "Error Workflow",
+ "nodes": [
+  {
+   "id": "bf4ecc3d-a007-4ba9-801a-2f4531dd2d89",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {},
+   "typeVersion": 1
+  },
+  {
+   "id": "c0659d19-39f0-405e-b910-8c5a43dfc5cc",
+   "name": "Edit Fields",
+   "type": "n8n-nodes-base.set",
+   "position": [
+    208,
+    0
+   ],
+   "parameters": {
+    "options": {},
+    "assignments": {
+     "assignments": [
+      {
+       "id": "df38e2da-bf4e-45ac-acb7-e71c951a1e72",
+       "name": "workflow_name",
+       "type": "string",
+       "value": "={{ $json.workflow?.name || 'Unknown' }}"
+      },
+      {
+       "id": "554acd79-1ad5-4809-9a15-65c731cc1eaa",
+       "name": "error_message",
+       "type": "string",
+       "value": "={{ $json.execution?.error?.message || 'No message' }}"
+      },
+      {
+       "id": "e3b44f7b-5305-44e3-8276-47193cfcb242",
+       "name": "error_node",
+       "type": "string",
+       "value": "={{ $json.execution?.error?.node?.name || 'Unknown node' }}"
+      },
+      {
+       "id": "24f29753-9706-4509-b30c-d92b9d677c4a",
+       "name": "timestamp ",
+       "type": "string",
+       "value": "={{ $now.toISO() }}"
+      }
+     ]
+    }
+   },
+   "typeVersion": 3.4
+  },
+  {
+   "id": "c762449b-a909-4d47-9aa6-03420f30e840",
+   "name": "Insert rows in a table",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    416,
+    0
+   ],
+   "parameters": {
+    "table": {
+     "__rl": true,
+     "mode": "list",
+     "value": "pipeline_errors",
+     "cachedResultName": "pipeline_errors"
+    },
+    "schema": {
+     "__rl": true,
+     "mode": "list",
+     "value": "public"
+    },
+    "columns": {
+     "value": {
+      "phase": "Gate 1 Pipeline",
+      "company": "={{ $json.workflow_name }}",
+      "resolved": false,
+      "error_msg": "={{ $json.error_message }}",
+      "node_name": "={{ $json.error_node }}",
+      "occurred_at": "={{ $json['timestamp '] }}"
+     },
+     "schema": [
+      {
+       "id": "id",
+       "type": "number",
+       "display": true,
+       "removed": true,
+       "required": false,
+       "displayName": "id",
+       "defaultMatch": true,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "occurred_at",
+       "type": "dateTime",
+       "display": true,
+       "required": false,
+       "displayName": "occurred_at",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "company",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "company",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "phase",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "phase",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "node_name",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "node_name",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "error_msg",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "error_msg",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "resolved",
+       "type": "boolean",
+       "display": true,
+       "required": false,
+       "displayName": "resolved",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      }
+     ],
+     "mappingMode": "defineBelow",
+     "matchingColumns": [
+      "id"
+     ],
+     "attemptToConvertTypes": false,
+     "convertFieldsToString": false
+    },
+    "options": {}
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "aac0f8c6-9c06-4186-99fd-ad2652e3a2c3",
+   "name": "Send a message",
+   "type": "n8n-nodes-base.gmail",
+   "position": [
+    624,
+    0
+   ],
+   "webhookId": "79fb7a1a-7d0d-4f0c-b9b1-a1ac5fd5d8b7",
+   "parameters": {
+    "sendTo": "honlamchia@gmail.com",
+    "message": "=A pipeline error has occurred.  Workflow: {{ $('Edit Fields').item.json.workflow_name }} Failed Node: {{ $('Edit Fields').item.json.error_node }} Error: {{ $('Edit Fields').item.json.error_message }} Time: {{ $('Edit Fields').item.json['timestamp '] }}  Check the pipeline_errors table in Supabase for full details.",
+    "options": {},
+    "subject": "=⚠️ Pipeline Error — {{ $json.node_name }}"
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "vKMX1dZQWsi80BVz",
+     "name": "Gmail OAuth2 API"
+    }
+   },
+   "typeVersion": 2.2
+  }
+ ],
+ "connections": {
+  "Edit Fields": {
+   "main": [
+    [
+     {
+      "node": "Insert rows in a table",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Edit Fields",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Insert rows in a table": {
+   "main": [
+    [
+     {
+      "node": "Send a message",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "binaryMode": "separate",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "rVr68buB9TD3qR5Y",
+  "activeAtExport": true
+ }
+}

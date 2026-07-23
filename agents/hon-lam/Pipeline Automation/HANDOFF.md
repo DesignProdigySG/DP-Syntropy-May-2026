@@ -1,4 +1,4 @@
-# DP Syntropy — Handoff Guide
+# Intelligent Automation Pipeline — Handoff Guide
 
 For someone picking up this project who wasn't in the room for any of it. Read this first, then `README.md` (architecture/setup) and `PROJECT_AUDIT.md` (full history of decisions, bugs found/fixed, and what's still open).
 
@@ -22,7 +22,7 @@ These cost real time to rediscover — they're already paid for once:
 
 1. **n8n draft vs. active silently diverge.** Editing a published workflow via the SDK/MCP tools lands in the *draft*; the live webhook keeps running the old *active* version until you explicitly `publish_workflow`. This has caused real bugs three separate times in this project (lost `operation`/`resource` fields, lost `disabled` flags, lost `=` expression prefixes). **Always diff draft vs. active before publishing.**
 2. **Supabase's `public` schema has a default-ACL leak.** `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated` is still active at the schema level. Every *new* table or view automatically gets full CRUD for `anon`/`authenticated` regardless of any `GRANT SELECT` you add afterward. This has bitten the project three times already (25 dashboard views, two `feedback_for_*` views, two `console_*` views). **Any new view needs an explicit `REVOKE ALL ... GRANT SELECT` pass before it's wired into a dashboard.** Removing the root cause (dropping the default-ACL rule) is still on the open list — see Priority list below.
-3. **Salesforce sync is real but partially disabled on purpose.** Campaign sync (one Salesforce Campaign per approved brief) is live. Lead/CampaignMember sync was built, end-to-end tested, then **deliberately disabled** (5 nodes set `disabled: true` in Action Approval Handler) on 2026-06-28 pending review — there's no real contact-email data yet (`buying_group` entries have no email field), so it was paused before running against real data rather than risk pushing bad Leads. Don't re-enable without checking in.
+3. **Salesforce sync is live (sandbox only).** Campaign sync (one Salesforce Campaign per approved brief) and Lead/CampaignMember sync are both **active** — the Lead sync was disabled 2026-06-28, then **re-enabled and hardened 2026-06-29** (per-contact loop, dedup, idempotency). All Salesforce nodes point at the **sandbox** credential **"Salesforce account 2"** (`HPnx6HXN8COY4aOe`) — **never** the old "Salesforce account" (`hhgpLMFIO8Wl2Ykr`), which holds a real populated CRM (that org was removed from the sync on 2026-06-26). Caveat: `buying_group` entries still have no email field, so Lead dedup is a manual SOQL name+company match, not a native upsert. `create_workflow_from_code`/`update_workflow` have repeatedly auto-assigned the wrong SF credential (8+ times) — always re-verify the binding is the sandbox one after any SF-node edit.
 4. **Both dashboard HTML files embed a Supabase anon key in plaintext** (`dashboards/pipeline-control-tower.html`, `-shared.html`). Treat both as internal-only. The "-shared" copy's read-only lock is cosmetic (disabled `<input>`, not a permissions boundary) — RLS is what actually protects the data now, not the UI.
 5. **This is not a git repo.** It's a OneDrive-synced folder with no version control, no commit history, and no remote. If you want change history going forward, set one up (see below) — right now the only history is what's narrated in `PROJECT_AUDIT.md`.
 
@@ -68,13 +68,15 @@ Decide which model fits:
 
 ## Open items (don't let these get lost in the handoff)
 
-From `PROJECT_AUDIT.md`'s priority list, as of 2026-06-28 — check that file for full detail before acting on any of these:
+Updated **2026-07-07**. Full detail in `PROJECT_AUDIT.md` (see its "Update — 2026-07-06/07" section).
 
-1. Swap the GA4 workflows — deactivate "GA4 Engagement Connector" (has a duplicate-insert bug), activate "GA4 → Engagement Feeder" (the correct version) — before real tracked traffic exists.
-2. 10 of 16 live n8n workflows are still undocumented in `n8n-workflows/README.md`; decide whether the undocumented pgvector/RAG tables (`documents`, `agent_inputs`, `agent_inputs_bak`) are part of the system or dead weight to drop.
-3. Housekeeping: archive 3 duplicate "Gate 1" workflows + "My workflow 2"; resolve or explain 13 stale, all-unresolved `pipeline_errors`; fix the `rep@yourcompany.com` placeholder still in Action Approval Handler; clean up `*_bak` tables once confirmed unneeded.
-4. Drop the root-cause default-ACL rule on the `public` schema (see gotcha #2 above) instead of continuing to patch each new view individually.
-5. Decide on the disabled Salesforce Lead/CampaignMember sync (gotcha #3 above) — re-enable, rebuild, or drop.
+**Done since the last handoff pass:** GA4 workflow swap; Error Workflow attached pipeline-wide + GA4 feeder fixed; retries added to external nodes; SF error-logging on Action Approval Handler; `pipeline_errors` legacy resolved; Gate1/Gate2 legacy trimmed (6 tables + `match_documents` + 2 views + 8 `pipeline_runs` columns dropped — RAG tables `documents`/`agent_inputs`/`*_bak` are gone); MMM instrumentation applied (funnel objectives + action-mix matrix + daily pg_cron status job); Salesforce Lead sync re-enabled (gotcha #3).
+
+**Still open — biggest to smallest:**
+1. **Get off personal accounts.** Everything runs under Hon Lam's personal logins (see above) — the #1 handoff blocker. Move to shared/company-owned n8n, Supabase, Salesforce, Google, S3, OpenAI.
+2. **The go-live inputs (external):** `app_config.tracking_base_url` (a DP-owned website w/ GA4) and `when_engine_url` (Jocelyn's WHEN-engine endpoint) are still empty, so tracked links are placeholders and reject-feedback is dropped — this is why `engagement_events`/`outcomes` are empty. Plus a real `rep_notification_email`.
+3. **Drop the root-cause default-ACL rule** on the `public` schema (gotcha #2) instead of patching each new view.
+4. Small: add the 4 unindexed FK covering indexes; archive the inactive monolith `rNFL6JkvW5TxnaQv` + "My workflow 2"; decide on `pipeline_runs_gate1_archive` (safe to drop) and the now-unused pgvector extension; regenerate `supabase/schema.sql` (currently a base file + dated migrations).
 
 ## On Claude/Cowork context specifically
 

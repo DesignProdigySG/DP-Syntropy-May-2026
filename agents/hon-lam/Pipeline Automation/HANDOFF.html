@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>HANDOFF.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="dp-syntropy--handoff-guide">DP Syntropy — Handoff Guide</h1>
+<p>For someone picking up this project who wasn't in the room for any of it. Read this first, then <code>README.md</code> (architecture/setup) and <code>PROJECT_AUDIT.md</code> (full history of decisions, bugs found/fixed, and what's still open).</p>
+<h2 id="what-this-project-is">What this project is</h2>
+<p>A B2B lead pipeline: WHEN-layer account briefs come in → get turned into human-approved sales briefs and tracked outreach actions → every action is measured against a hypothesis. Five platforms, no single login covers all of them:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Role</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>n8n cloud</td>
+<td>Orchestration (ingest, brief generation, approvals, daily measurement)</td>
+<td>designprodigy.app.n8n.cloud</td>
+</tr>
+<tr>
+<td>Supabase (Postgres)</td>
+<td>System of record — all tables/views</td>
+<td>project <code>fqsqoxsosavjhdsvfevk</code>, org &quot;Hon-Lam-Chia&quot;</td>
+</tr>
+<tr>
+<td>Salesforce</td>
+<td>One-way synced execution layer (prototype)</td>
+<td>org tied to the n8n &quot;Salesforce account&quot; credential</td>
+</tr>
+<tr>
+<td>GA4 + Gmail</td>
+<td>Outcome measurement (web visits / email replies)</td>
+<td>GA4 property + <code>honlamchia@gmail.com</code></td>
+</tr>
+<tr>
+<td>AWS S3</td>
+<td>Generated brief HTML storage</td>
+<td>n8n &quot;AWS (IAM) account&quot; credential</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Everything currently runs under Hon Lam's personal accounts.</strong> None of the n8n credentials live in a shared/team project yet — <code>list_credentials</code> shows all six (AWS, OpenAI, Postgres, Salesforce, Gmail, Google Service Account) under the personal n8n project <code>Hon Lam Chia &lt;honlamchia@gmail.com&gt;</code>. Handing this off means either (a) inviting the new person and moving these into a shared n8n project, or (b) the new person works alongside Hon Lam rather than independently. Decide which before starting the steps below.</p>
+<h2 id="things-you-need-to-know-before-touching-anything">Things you need to know before touching anything</h2>
+<p>These cost real time to rediscover — they're already paid for once:</p>
+<ol>
+<li><strong>n8n draft vs. active silently diverge.</strong> Editing a published workflow via the SDK/MCP tools lands in the <em>draft</em>; the live webhook keeps running the old <em>active</em> version until you explicitly <code>publish_workflow</code>. This has caused real bugs three separate times in this project (lost <code>operation</code>/<code>resource</code> fields, lost <code>disabled</code> flags, lost <code>=</code> expression prefixes). <strong>Always diff draft vs. active before publishing.</strong></li>
+<li><strong>Supabase's <code>public</code> schema has a default-ACL leak.</strong> <code>ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated</code> is still active at the schema level. Every <em>new</em> table or view automatically gets full CRUD for <code>anon</code>/<code>authenticated</code> regardless of any <code>GRANT SELECT</code> you add afterward. This has bitten the project three times already (25 dashboard views, two <code>feedback_for_*</code> views, two <code>console_*</code> views). <strong>Any new view needs an explicit <code>REVOKE ALL ... GRANT SELECT</code> pass before it's wired into a dashboard.</strong> Removing the root cause (dropping the default-ACL rule) is still on the open list — see Priority list below.</li>
+<li><strong>Salesforce sync is live (sandbox only).</strong> Campaign sync (one Salesforce Campaign per approved brief) and Lead/CampaignMember sync are both <strong>active</strong> — the Lead sync was disabled 2026-06-28, then <strong>re-enabled and hardened 2026-06-29</strong> (per-contact loop, dedup, idempotency). All Salesforce nodes point at the <strong>sandbox</strong> credential <strong>&quot;Salesforce account 2&quot;</strong> (<code>HPnx6HXN8COY4aOe</code>) — <strong>never</strong> the old &quot;Salesforce account&quot; (<code>hhgpLMFIO8Wl2Ykr</code>), which holds a real populated CRM (that org was removed from the sync on 2026-06-26). Caveat: <code>buying_group</code> entries still have no email field, so Lead dedup is a manual SOQL name+company match, not a native upsert. <code>create_workflow_from_code</code>/<code>update_workflow</code> have repeatedly auto-assigned the wrong SF credential (8+ times) — always re-verify the binding is the sandbox one after any SF-node edit.</li>
+<li><strong>Both dashboard HTML files embed a Supabase anon key in plaintext</strong> (<code>dashboards/pipeline-control-tower.html</code>, <code>-shared.html</code>). Treat both as internal-only. The &quot;-shared&quot; copy's read-only lock is cosmetic (disabled <code>&lt;input&gt;</code>, not a permissions boundary) — RLS is what actually protects the data now, not the UI.</li>
+<li><strong>This is not a git repo.</strong> It's a OneDrive-synced folder with no version control, no commit history, and no remote. If you want change history going forward, set one up (see below) — right now the only history is what's narrated in <code>PROJECT_AUDIT.md</code>.</li>
+</ol>
+<h2 id="transferring-access-platform-by-platform">Transferring access, platform by platform</h2>
+<h3 id="1-project-files-this-folder">1. Project files (this folder)</h3>
+<p>Right-click the <code>dp-repo</code> folder in OneDrive (or use the OneDrive web app) → <strong>Share</strong> → enter the other person's email, grant Edit or View. They'll see live updates as the folder syncs — no export/zip needed.</p>
+<p>Consider also turning this into a real git repo (<code>git init</code>, push to a private GitHub/GitLab repo) if you want diffable history and easier multi-person editing going forward. Right now nothing here is version-controlled.</p>
+<h3 id="2-n8n-cloud-designprodigyappn8ncloud">2. n8n cloud (designprodigy.app.n8n.cloud)</h3>
+<ul>
+<li><strong>Invite the user:</strong> as the instance owner, go to Settings → Users → Invite, enter their email. n8n emails them a join link. (<a href="https://docs.n8n.io/user-management/cloud-setup/">n8n Cloud setup docs</a>)</li>
+<li><strong>Give them something to work with:</strong> an invited member with no shared project sees nothing. Either:
+<ul>
+<li>Move the relevant workflows and credentials into a shared <strong>Team project</strong> and add them to it (Workflow/Credential menu → Move; when moving a workflow, you can choose to share its credentials along with it), or</li>
+<li>Share individual credentials/workflows with their user directly.</li>
+<li>Note: moving a credential strips any <em>existing</em> sharing on it — re-add anyone else who needed it. (<a href="https://docs.n8n.io/credentials/credential-sharing/">Credential sharing docs</a>, <a href="https://docs.n8n.io/user-management/rbac/projects/">RBAC projects docs</a>)</li>
+</ul>
+</li>
+<li>Multi-user management is a paid-plan feature on n8n Cloud — confirm the current plan supports it before promising access.</li>
+</ul>
+<h3 id="3-supabase">3. Supabase</h3>
+<ul>
+<li>Org <strong>Hon-Lam-Chia</strong> (<code>rhlcngpiondbiqlirpbx</code>), project <strong>Hon-Lam-Chia's Project</strong> (<code>fqsqoxsosavjhdsvfevk</code>, ap-southeast-2).</li>
+<li>Org Settings → Team → invite by email, pick a role: Owner / Administrator / Developer / Read-Only. (<a href="https://supabase.com/docs/guides/platform/access-control">Access control docs</a>)</li>
+<li>On Team/Enterprise plans you can scope the invite (or a later role assignment) to just this one project rather than the whole org — useful if Hon Lam has or adds other unrelated projects later.</li>
+<li>Recommendation: <strong>Administrator</strong> if they need to run migrations/manage the schema, <strong>Developer</strong> if they just need to query and build dashboards.</li>
+</ul>
+<h3 id="4-salesforce">4. Salesforce</h3>
+<p>Two different questions, easy to conflate:</p>
+<ul>
+<li><strong>Do they need to run the n8n→Salesforce sync?</strong> No new Salesforce login needed — the existing &quot;Salesforce account&quot; OAuth2 credential in n8n already authenticates independently of who triggers the workflow. Sharing the n8n credential (step 2) is sufficient.</li>
+<li><strong>Do they need to log into Salesforce directly</strong> (to see the synced Campaigns/Leads, debug, or eventually take over the credential)? Then they need an actual Salesforce user: Setup → Users → New User, assign a User License and Profile, save — Salesforce emails them a password-setup link. Confirm a spare license is available first; this is a prototype org and licenses may be limited. (<a href="https://help.salesforce.com/s/articleView?id=005225092&amp;language=en_US&amp;type=1">Salesforce add-user docs</a>)</li>
+</ul>
+<h3 id="5-ga4">5. GA4</h3>
+<p>Admin (gear icon) → under the Property column, <strong>Property Access Management</strong> (not Account Access Management, unless they should see every property on the account) → blue <strong>+</strong> → Add users → enter email → pick a role (Viewer for visibility-only, Editor if they'll change config, Analyst for explorations). (<a href="https://support.google.com/analytics/answer/9305587?hl=en">GA4 access management help</a>)</p>
+<h3 id="6-gmail-outcome-measurement--rep-notification-emails">6. Gmail (outcome measurement + rep notification emails)</h3>
+<p>Decide which model fits:</p>
+<ul>
+<li><strong>They take over sending/reading as <code>honlamchia@gmail.com</code></strong> — grant Gmail delegate access: Gmail Settings → Accounts and Import → &quot;Grant access to your account&quot; → Add another account → their email. Delegates can read/send/delete on that mailbox. (<a href="https://support.google.com/mail/answer/138350?hl=en">Gmail delegation help</a>)</li>
+<li><strong>They should send as themselves instead</strong> — create a new Gmail OAuth2 credential in n8n under their own Google account, then repoint the relevant nodes (Action/Brief Approval Handlers, GA4/Gmail measurement) at the new credential. More setup, but doesn't mix identities in the rep-facing emails.</li>
+</ul>
+<h2 id="open-items-dont-let-these-get-lost-in-the-handoff">Open items (don't let these get lost in the handoff)</h2>
+<p>Updated <strong>2026-07-07</strong>. Full detail in <code>PROJECT_AUDIT.md</code> (see its &quot;Update — 2026-07-06/07&quot; section).</p>
+<p><strong>Done since the last handoff pass:</strong> GA4 workflow swap; Error Workflow attached pipeline-wide + GA4 feeder fixed; retries added to external nodes; SF error-logging on Action Approval Handler; <code>pipeline_errors</code> legacy resolved; Gate1/Gate2 legacy trimmed (6 tables + <code>match_documents</code> + 2 views + 8 <code>pipeline_runs</code> columns dropped — RAG tables <code>documents</code>/<code>agent_inputs</code>/<code>*_bak</code> are gone); MMM instrumentation applied (funnel objectives + action-mix matrix + daily pg_cron status job); Salesforce Lead sync re-enabled (gotcha #3).</p>
+<p><strong>Still open — biggest to smallest:</strong></p>
+<ol>
+<li><strong>Get off personal accounts.</strong> Everything runs under Hon Lam's personal logins (see above) — the #1 handoff blocker. Move to shared/company-owned n8n, Supabase, Salesforce, Google, S3, OpenAI.</li>
+<li><strong>The go-live inputs (external):</strong> <code>app_config.tracking_base_url</code> (a DP-owned website w/ GA4) and <code>when_engine_url</code> (Jocelyn's WHEN-engine endpoint) are still empty, so tracked links are placeholders and reject-feedback is dropped — this is why <code>engagement_events</code>/<code>outcomes</code> are empty. Plus a real <code>rep_notification_email</code>.</li>
+<li><strong>Drop the root-cause default-ACL rule</strong> on the <code>public</code> schema (gotcha #2) instead of patching each new view.</li>
+<li>Small: add the 4 unindexed FK covering indexes; archive the inactive monolith <code>rNFL6JkvW5TxnaQv</code> + &quot;My workflow 2&quot;; decide on <code>pipeline_runs_gate1_archive</code> (safe to drop) and the now-unused pgvector extension; regenerate <code>supabase/schema.sql</code> (currently a base file + dated migrations).</li>
+</ol>
+<h2 id="on-claudecowork-context-specifically">On Claude/Cowork context specifically</h2>
+<p>If the new person will also work with Claude on this project: the architecture/decision context above lives in <em>this</em> Claude account's memory and won't be visible to their account automatically. This document plus <code>README.md</code>/<code>PROJECT_AUDIT.md</code> is the portable version — point their Claude at this repo and these three files and it'll have the same grounding.</p>
+
+</body>
+</html>

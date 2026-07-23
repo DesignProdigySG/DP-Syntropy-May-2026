@@ -1,0 +1,530 @@
+{
+ "name": "Tool Campaign Provisioner",
+ "nodes": [
+  {
+   "id": "8ddb7ca4-219b-4ead-a30f-6a61c67b88ce",
+   "name": "Daily 05:35 UTC",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "days",
+       "triggerAtHour": 5,
+       "triggerAtMinute": 35
+      }
+     ]
+    }
+   },
+   "typeVersion": 1.3
+  },
+  {
+   "id": "0ab947c8-35ca-4b30-864a-4162e9f78949",
+   "name": "Get Smartlead Key",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    224,
+    0
+   ],
+   "parameters": {
+    "query": "SELECT value FROM app_config WHERE key = 'smartlead_api_key';",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "cf1f85e1-8e25-4ecb-ac04-4739884d67ff",
+   "name": "Key Set?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    448,
+    0
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "loose"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty"
+       },
+       "leftValue": "={{ ($json.value || \"\").trim() }}"
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.2
+  },
+  {
+   "id": "6039b3d2-e37d-4aac-82c2-82d754b4f5c0",
+   "name": "Find Unprovisioned Email Actions",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    672,
+    0
+   ],
+   "parameters": {
+    "query": "SELECT id, utm_campaign, account, target, outreach_draft, tracked_url FROM actions WHERE action_type = 'email' AND status IN ('recommended','approved','executed') AND tool_campaign_id IS NULL AND utm_campaign IS NOT NULL ORDER BY id LIMIT 20;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "dcb60101-1217-4fcb-ac62-87c8df4df24c",
+   "name": "Prepare Items",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    896,
+    0
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const key = ($('Get Smartlead Key').first().json.value || '').trim();\nreturn $input.all().map(i => ({ json: { action_id: i.json.id, utm_campaign: i.json.utm_campaign, account: i.json.account, target: i.json.target || '', outreach_draft: i.json.outreach_draft || '', tracked_url: i.json.tracked_url || '', api_key: key } }));"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "3cf3cd66-f632-40b2-a25d-d25a9525530e",
+   "name": "Create Smartlead Campaign",
+   "type": "n8n-nodes-base.httpRequest",
+   "position": [
+    1120,
+    0
+   ],
+   "parameters": {
+    "url": "=https://server.smartlead.ai/api/v1/campaigns/create?api_key={{ $json.api_key }}",
+    "method": "POST",
+    "options": {
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    },
+    "jsonBody": "={{ JSON.stringify({ name: $json.utm_campaign }) }}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "typeVersion": 4.3
+  },
+  {
+   "id": "7cf8b48c-5715-492d-8686-4a0f12678e92",
+   "name": "Attach Engagement Webhook",
+   "type": "n8n-nodes-base.httpRequest",
+   "position": [
+    1344,
+    0
+   ],
+   "parameters": {
+    "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $json.id }}/webhooks?api_key={{ $('Prepare Items').item.json.api_key }}",
+    "method": "POST",
+    "options": {
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    },
+    "jsonBody": "{\"id\": null, \"name\": \"DP engagement feeder\", \"webhook_url\": \"https://designprodigy.app.n8n.cloud/webhook/email-events\", \"event_types\": [\"EMAIL_OPENED\", \"EMAIL_CLICKED\", \"EMAIL_REPLIED\"], \"categories\": []}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "typeVersion": 4.3
+  },
+  {
+   "id": "f7b5c210-4e5c-46f6-9083-cb4b52beeb7b",
+   "name": "Mark Provisioned",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1568,
+    0
+   ],
+   "parameters": {
+    "query": "UPDATE actions SET tool_campaign_id = '{{ $('Create Smartlead Campaign').item.json.id }}' WHERE id = {{ $('Prepare Items').item.json.action_id }} AND tool_campaign_id IS NULL RETURNING id, tool_campaign_id;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "4c76733e-0e15-42bb-b396-90516f0fa60a",
+   "name": "Provisioning Summary",
+   "type": "n8n-nodes-base.gmail",
+   "position": [
+    1792,
+    0
+   ],
+   "webhookId": "307712eb-99cc-4616-bd97-3e11630e7d2f",
+   "parameters": {
+    "sendTo": "honlamchia@gmail.com",
+    "message": "=Tool Campaign Provisioner run complete.\n\nProvisioned {{ $('Prepare Items').all().length }} Smartlead campaign(s), one per pending email action, each named as its utm_campaign with the engagement webhook attached (EMAIL_OPENED / EMAIL_CLICKED / EMAIL_REPLIED -> /webhook/email-events).\n\nWhere the action's target was a real email address AND an outreach draft existed, the campaign was also fully auto-enrolled: draft saved as the email sequence, SGT business-hours schedule set, lead added, campaign STARTED (zero-touch send).\n\nActions: {{ $('Prepare Items').all().map(i => i.json.account + ' (' + i.json.utm_campaign + (String(i.json.target).includes('@') ? ', auto-enrolled: ' + i.json.target : ', no contact email — rep sends manually') + ')').join('; ') }}",
+    "options": {},
+    "subject": "=Smartlead provisioning — {{ $('Prepare Items').all().length }} campaign(s) created",
+    "resource": "message",
+    "emailType": "text",
+    "operation": "send"
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "vKMX1dZQWsi80BVz",
+     "name": "Gmail OAuth2 API"
+    }
+   },
+   "executeOnce": true,
+   "typeVersion": 2.2
+  },
+  {
+   "id": "dad45515-de05-44d9-9bb6-edf4af2f7b3d",
+   "name": "Has Contact Email?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    1400,
+    100
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 3,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "loose"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "id": "hasemail1",
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty",
+        "singleValue": true
+       },
+       "leftValue": "={{ ($('Prepare Items').item.json.target || '').includes('@') ? 'yes' : '' }}",
+       "rightValue": ""
+      },
+      {
+       "id": "hasdraft1",
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty",
+        "singleValue": true
+       },
+       "leftValue": "={{ $('Prepare Items').item.json.outreach_draft }}",
+       "rightValue": ""
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "ab443c47-31b5-46af-8619-3e94c2de1a4e",
+   "name": "Save Sequence",
+   "type": "n8n-nodes-base.httpRequest",
+   "onError": "continueRegularOutput",
+   "position": [
+    1600,
+    40
+   ],
+   "parameters": {
+    "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $('Create Smartlead Campaign').item.json.id }}/sequences?api_key={{ $('Prepare Items').item.json.api_key }}",
+    "method": "POST",
+    "options": {
+     "timeout": 30000,
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    },
+    "jsonBody": "={{ JSON.stringify({ sequences: [{ seq_number: 1, seq_delay_details: { delay_in_days: 0 }, subject: 'Design Prodigy × ' + $('Prepare Items').item.json.account, email_body: ($('Prepare Items').item.json.outreach_draft + '\\n\\n' + $('Prepare Items').item.json.tracked_url).trim() }] }) }}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "typeVersion": 4.3
+  },
+  {
+   "id": "10937502-e208-41b9-a2c7-222b80601127",
+   "name": "Set Schedule",
+   "type": "n8n-nodes-base.httpRequest",
+   "onError": "continueRegularOutput",
+   "position": [
+    1800,
+    40
+   ],
+   "parameters": {
+    "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $('Create Smartlead Campaign').item.json.id }}/schedule?api_key={{ $('Prepare Items').item.json.api_key }}",
+    "method": "POST",
+    "options": {
+     "timeout": 30000,
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    },
+    "jsonBody": "{\"timezone\": \"Asia/Singapore\", \"days_of_the_week\": [1,2,3,4,5], \"start_hour\": \"09:00\", \"end_hour\": \"17:00\", \"min_time_btw_emails\": 10, \"max_new_leads_per_day\": 20}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "typeVersion": 4.3
+  },
+  {
+   "id": "795a4d16-86f4-4d58-a065-f956716e77f4",
+   "name": "Add Lead",
+   "type": "n8n-nodes-base.httpRequest",
+   "onError": "continueRegularOutput",
+   "position": [
+    2000,
+    40
+   ],
+   "parameters": {
+    "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $('Create Smartlead Campaign').item.json.id }}/leads?api_key={{ $('Prepare Items').item.json.api_key }}",
+    "method": "POST",
+    "options": {
+     "timeout": 30000,
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    },
+    "jsonBody": "={{ JSON.stringify({ lead_list: [{ email: $('Prepare Items').item.json.target, company_name: $('Prepare Items').item.json.account }] }) }}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "typeVersion": 4.3
+  },
+  {
+   "id": "5bf332b5-ce94-46b2-bd2f-a45309c853fe",
+   "name": "Start Campaign",
+   "type": "n8n-nodes-base.httpRequest",
+   "onError": "continueRegularOutput",
+   "position": [
+    2200,
+    40
+   ],
+   "parameters": {
+    "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $('Create Smartlead Campaign').item.json.id }}/status?api_key={{ $('Prepare Items').item.json.api_key }}",
+    "method": "POST",
+    "options": {
+     "timeout": 30000,
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    },
+    "jsonBody": "{\"status\": \"START\"}",
+    "sendBody": true,
+    "contentType": "json",
+    "specifyBody": "json"
+   },
+   "typeVersion": 4.3
+  }
+ ],
+ "connections": {
+  "Add Lead": {
+   "main": [
+    [
+     {
+      "node": "Start Campaign",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Key Set?": {
+   "main": [
+    [
+     {
+      "node": "Find Unprovisioned Email Actions",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Set Schedule": {
+   "main": [
+    [
+     {
+      "node": "Add Lead",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prepare Items": {
+   "main": [
+    [
+     {
+      "node": "Create Smartlead Campaign",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Sequence": {
+   "main": [
+    [
+     {
+      "node": "Set Schedule",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Start Campaign": {
+   "main": [
+    [
+     {
+      "node": "Provisioning Summary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Daily 05:35 UTC": {
+   "main": [
+    [
+     {
+      "node": "Get Smartlead Key",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mark Provisioned": {
+   "main": [
+    [
+     {
+      "node": "Has Contact Email?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Smartlead Key": {
+   "main": [
+    [
+     {
+      "node": "Key Set?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Has Contact Email?": {
+   "main": [
+    [
+     {
+      "node": "Save Sequence",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Provisioning Summary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Attach Engagement Webhook": {
+   "main": [
+    [
+     {
+      "node": "Mark Provisioned",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create Smartlead Campaign": {
+   "main": [
+    [
+     {
+      "node": "Attach Engagement Webhook",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Find Unprovisioned Email Actions": {
+   "main": [
+    [
+     {
+      "node": "Prepare Items",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "OoO1O8UKiYwfz5SK",
+  "activeAtExport": true
+ }
+}

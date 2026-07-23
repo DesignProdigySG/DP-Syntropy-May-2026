@@ -1,0 +1,249 @@
+{
+ "name": "Client Onboarding",
+ "nodes": [
+  {
+   "id": "3e1f4bc7-a7e3-4719-ba2a-792c107b14b0",
+   "name": "Onboarding Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "position": [
+    0,
+    96
+   ],
+   "webhookId": "2fdb47cd-b56e-4a68-8681-ad68ee188254",
+   "parameters": {
+    "path": "client-onboarding",
+    "options": {},
+    "httpMethod": "POST",
+    "responseMode": "responseNode"
+   },
+   "typeVersion": 2.1
+  },
+  {
+   "id": "a549e974-b6e9-4852-974b-4792037a8b27",
+   "name": "Get Onboarding Code",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    224,
+    96
+   ],
+   "parameters": {
+    "query": "SELECT value FROM app_config WHERE key = 'onboarding_code';",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "28949bd3-0aa3-425a-a626-a355e4880432",
+   "name": "Validate Submission",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    448,
+    96
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst expected = ($input.first().json.value || '').trim();\nconst b = ($('Onboarding Webhook').first().json.body) || {};\nconst code = String(b.setup_code || '').trim();\nconst clientName = String(b.client_name || '').trim();\nconst repEmail = String(b.rep_email || '').trim();\nconst emailOk = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(repEmail);\nconst valid = expected !== '' && code === expected && clientName !== '' && emailOk;\nreturn [{ json: {\n  valid,\n  client_name: clientName,\n  rep_email: repEmail,\n  client_name_esc: esc(clientName),\n  rep_email_esc: esc(repEmail),\n  calendar_link_esc: esc(String(b.calendar_link || '').trim()),\n  sender_account_esc: esc(String(b.sender_account || '').trim()),\n  notes_esc: esc(String(b.notes || '').trim().slice(0, 1000)),\n  raw_esc: esc(JSON.stringify({ client_name: b.client_name, rep_email: b.rep_email, calendar_link: b.calendar_link, sender_account: b.sender_account, notes: b.notes }))\n} }];"
+   },
+   "typeVersion": 2
+  },
+  {
+   "id": "2ab0a5ee-2f21-4d69-904b-c4b9bac149ac",
+   "name": "Valid?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    672,
+    96
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "loose"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "boolean",
+        "operation": "true"
+       },
+       "leftValue": "={{ $json.valid }}"
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.2
+  },
+  {
+   "id": "488e1323-2896-4954-b43d-1731c7dbbf65",
+   "name": "Apply Config & Record",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    896,
+    0
+   ],
+   "parameters": {
+    "query": "WITH cli AS (\n  INSERT INTO clients (name, rep_email, calendar_link)\n  VALUES ('{{ $json.client_name_esc }}', '{{ $json.rep_email_esc }}', NULLIF('{{ $json.calendar_link_esc }}',''))\n  ON CONFLICT (name) DO UPDATE SET rep_email = EXCLUDED.rep_email, calendar_link = COALESCE(EXCLUDED.calendar_link, clients.calendar_link)\n  RETURNING id\n), cfg AS (\n  UPDATE app_config SET value = '{{ $json.rep_email_esc }}' WHERE key = 'rep_notification_email'\n)\nINSERT INTO client_onboarding (client_name, rep_email, calendar_link, sender_account, notes, source, raw)\nVALUES ('{{ $json.client_name_esc }}', '{{ $json.rep_email_esc }}', NULLIF('{{ $json.calendar_link_esc }}',''), NULLIF('{{ $json.sender_account_esc }}',''), NULLIF('{{ $json.notes_esc }}',''), 'form', '{{ $json.raw_esc }}'::jsonb)\nRETURNING id, client_name, rep_email, (SELECT id FROM cli) AS client_id;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "37d552e5-6a6c-4c7f-9c91-eba562d5bb1b",
+   "name": "Confirmation Email",
+   "type": "n8n-nodes-base.gmail",
+   "position": [
+    1120,
+    0
+   ],
+   "webhookId": "ac8dcf3a-483d-4dc4-ba60-3112b76fb491",
+   "parameters": {
+    "sendTo": "={{ $('Validate Submission').item.json.rep_email }}",
+    "message": "=Welcome aboard.\n\nClient: {{ $('Validate Submission').item.json.client_name }}\nDigest + approval emails will go to: {{ $('Validate Submission').item.json.rep_email }}\n\nWhat happens next:\n1. New account briefs arrive for your review — approve or reject with one click.\n2. Approving a brief starts a tracked outreach cadence; you'll get one daily digest with your touches and ready-to-send drafts.\n3. Outcomes are measured automatically; when a campaign hits its goal you'll get an opportunity approval email.\n\nNo further setup is needed on your side.",
+    "options": {},
+    "subject": "=Pipeline configured — {{ $('Validate Submission').item.json.client_name }}",
+    "resource": "message",
+    "emailType": "text",
+    "operation": "send"
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": "vKMX1dZQWsi80BVz",
+     "name": "Gmail OAuth2 API"
+    }
+   },
+   "typeVersion": 2.2
+  },
+  {
+   "id": "54f628c6-e7ed-4fea-ae11-221444078ae4",
+   "name": "Respond OK",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    1344,
+    0
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "text",
+    "responseBody": "=✓ Onboarding complete — pipeline configured for {{ $('Validate Submission').item.json.client_name }}. A confirmation email is on its way to {{ $('Validate Submission').item.json.rep_email }}."
+   },
+   "typeVersion": 1.1
+  },
+  {
+   "id": "d1242461-7b2c-4d75-955e-6c894bb8e793",
+   "name": "Respond Invalid",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    896,
+    192
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "text",
+    "responseBody": "✕ Invalid setup code or missing/invalid fields (client_name, rep_email, setup_code are required)."
+   },
+   "typeVersion": 1.1
+  }
+ ],
+ "connections": {
+  "Valid?": {
+   "main": [
+    [
+     {
+      "node": "Apply Config & Record",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Respond Invalid",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Confirmation Email": {
+   "main": [
+    [
+     {
+      "node": "Respond OK",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Onboarding Webhook": {
+   "main": [
+    [
+     {
+      "node": "Get Onboarding Code",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Onboarding Code": {
+   "main": [
+    [
+     {
+      "node": "Validate Submission",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Validate Submission": {
+   "main": [
+    [
+     {
+      "node": "Valid?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Apply Config & Record": {
+   "main": [
+    [
+     {
+      "node": "Confirmation Email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "sTU9hQDkVWzveVzx",
+  "activeAtExport": true
+ }
+}

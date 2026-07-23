@@ -1,554 +1,763 @@
 {
-  "name": "Opportunity Approval Handler",
-  "nodes": [
-    {
-      "id": "a638590f-70b9-4cb0-9db6-2492f48f2220",
-      "name": "Webhook (opportunity approve/reject)",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
-      "position": [
-        0,
-        336
-      ],
-      "parameters": {
-        "path": "opportunity-approval",
-        "responseMode": "responseNode",
-        "options": {}
-      },
-      "webhookId": "2406e902-3adc-4962-bcd7-c16051856533"
-    },
-    {
-      "id": "afd5f3a6-dfd5-42a4-81bd-f65933e6c28c",
-      "name": "Verify Signature",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        224,
-        336
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`opportunity:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst q = ($('Webhook (opportunity approve/reject)').first().json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid, query: { id: idOk ? id : '', action: actionOk ? action : '' } } }];"
-      }
-    },
-    {
-      "id": "7bef1523-7f0b-4e7d-acbb-896514b96e07",
-      "name": "Signature Valid?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        448,
-        336
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.valid }}",
-              "operator": {
-                "type": "boolean",
-                "operation": "true"
-              },
-              "rightValue": true
-            }
-          ],
-          "combinator": "and"
-        }
-      }
-    },
-    {
-      "id": "86c52820-17e3-4ba5-9937-d67c00688ef8",
-      "name": "Approved?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        672,
-        240
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.query.action }}",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              },
-              "rightValue": "approve"
-            }
-          ],
-          "combinator": "and"
-        }
-      }
-    },
-    {
-      "id": "17ff8bcd-b9fb-492d-9b82-e58aa370dbe5",
-      "name": "Mark Opportunity Approved",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        896,
-        96
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "=UPDATE campaigns\nSET opportunity_status = 'created', opportunity_created_at = now()\nWHERE id = {{ $json.query.id }} AND opportunity_status = 'offered'\nRETURNING id, account, salesforce_campaign_id;",
-        "options": {}
-      }
-    },
-    {
-      "id": "9a2872c6-9191-441a-8dc1-afa70405b1d6",
-      "name": "Opportunity Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        1120,
-        96
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              },
-              "rightValue": ""
-            }
-          ],
-          "combinator": "and"
-        }
-      }
-    },
-    {
-      "id": "f654b0aa-aca8-4ece-a99f-93d7ed7c059f",
-      "name": "Create Salesforce Opportunity",
-      "type": "n8n-nodes-base.salesforce",
-      "typeVersion": 1.1,
-      "position": [
-        1344,
-        96
-      ],
-      "parameters": {
-        "resource": "opportunity",
-        "operation": "create",
-        "name": "={{ $json.account }} — Opportunity",
-        "closeDate": "={{ $now.plus({days: 30}).toISO() }}",
-        "stageName": "Qualify",
-        "additionalFields": {
-          "description": "=Auto-offered after the campaign reached its engagement goal (goal_met). Created via human-approved Opportunity Offer email link. Originating Salesforce Campaign: {{ $json.salesforce_campaign_id || 'none' }}"
-        }
-      },
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "e015ba75-32cc-459b-a050-160091dc8647",
-      "name": "Opportunity Created?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        1568,
-        96
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              },
-              "rightValue": ""
-            }
-          ],
-          "combinator": "and"
-        }
-      }
-    },
-    {
-      "id": "31f53008-d24d-4886-be98-f632bb9f8075",
-      "name": "Mark Opportunity Synced",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1792,
-        0
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "=UPDATE campaigns SET salesforce_opportunity_id = '{{ $json.id }}' WHERE id = {{ $('Mark Opportunity Approved').first().json.id }};",
-        "options": {}
-      }
-    },
-    {
-      "id": "87942e3e-b651-444b-a110-bb309933c524",
-      "name": "Respond Approved",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        2016,
-        0
-      ],
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "=✓ Opportunity created in Salesforce for {{ $('Mark Opportunity Approved').first().json.account }}.",
-        "options": {}
-      }
-    },
-    {
-      "id": "0c589c3d-1a0f-4c87-8ee2-2333d2193dc0",
-      "name": "Mark Opportunity Error",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1792,
-        192
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE campaigns SET opportunity_status = 'error', opportunity_error = $1 WHERE id = $2;",
-        "options": {
-          "queryReplacement": "={{ ($json.error && $json.error.message) || $json.message || 'Unknown Salesforce error' }}, {{ $('Mark Opportunity Approved').first().json.id }}"
-        }
-      }
-    },
-    {
-      "id": "efd36a0f-86bf-4327-aadf-540edab887d9",
-      "name": "Respond Error",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        2016,
-        192
-      ],
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "=⚠ Opportunity approval recorded, but the Salesforce write failed for {{ $('Mark Opportunity Approved').first().json.account }}. Check the dashboard.",
-        "options": {}
-      }
-    },
-    {
-      "id": "f2a41f2c-6ccd-4f42-8385-ff60f7e14897",
-      "name": "Respond Already Processed",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        1344,
-        288
-      ],
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "This opportunity offer has already been processed.",
-        "options": {}
-      }
-    },
-    {
-      "id": "5f571c27-2a8a-41cd-bf63-c5ec9717710b",
-      "name": "Mark Opportunity Declined",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        896,
-        432
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "=UPDATE campaigns\nSET opportunity_status = 'declined'\nWHERE id = {{ $json.query.id }} AND opportunity_status = 'offered'\nRETURNING id, account;",
-        "options": {}
-      }
-    },
-    {
-      "id": "2565c2dd-fe68-4646-aa60-a8346bf7735f",
-      "name": "Decline Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        1120,
-        432
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.id }}",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              },
-              "rightValue": ""
-            }
-          ],
-          "combinator": "and"
-        }
-      }
-    },
-    {
-      "id": "97dce0b8-9970-4114-8361-02d0aa6ad484",
-      "name": "Respond Declined",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        1344,
-        480
-      ],
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "=Opportunity offer declined for {{ $json.account }}. No Salesforce record created.",
-        "options": {}
-      }
-    },
-    {
-      "id": "defe67bd-5c2a-48ff-b4f9-74247a0f4939",
-      "name": "Respond Invalid Signature",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        672,
-        432
-      ],
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "Invalid or expired approval link.",
-        "options": {
-          "responseCode": 403
-        }
-      }
-    },
-    {
-      "id": "aaaa1111-0000-4000-8000-000000000001",
-      "name": "Get HMAC Secret",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        112,
-        336
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "select value from app_config where key='approval_hmac_secret';",
-        "options": {}
-      }
-    }
-  ],
-  "connections": {
-    "Webhook (opportunity approve/reject)": {
-      "main": [
-        [
-          {
-            "node": "Get HMAC Secret",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Verify Signature": {
-      "main": [
-        [
-          {
-            "node": "Signature Valid?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Signature Valid?": {
-      "main": [
-        [
-          {
-            "node": "Approved?",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Respond Invalid Signature",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Approved?": {
-      "main": [
-        [
-          {
-            "node": "Mark Opportunity Approved",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Mark Opportunity Declined",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Mark Opportunity Approved": {
-      "main": [
-        [
-          {
-            "node": "Opportunity Claimed?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Opportunity Claimed?": {
-      "main": [
-        [
-          {
-            "node": "Create Salesforce Opportunity",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Respond Already Processed",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create Salesforce Opportunity": {
-      "main": [
-        [
-          {
-            "node": "Opportunity Created?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Opportunity Created?": {
-      "main": [
-        [
-          {
-            "node": "Mark Opportunity Synced",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Mark Opportunity Error",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Mark Opportunity Synced": {
-      "main": [
-        [
-          {
-            "node": "Respond Approved",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Mark Opportunity Error": {
-      "main": [
-        [
-          {
-            "node": "Respond Error",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Mark Opportunity Declined": {
-      "main": [
-        [
-          {
-            "node": "Decline Claimed?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Decline Claimed?": {
-      "main": [
-        [
-          {
-            "node": "Respond Declined",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Respond Already Processed",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get HMAC Secret": {
-      "main": [
-        [
-          {
-            "node": "Verify Signature",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+ "name": "Opportunity Approval Handler",
+ "nodes": [
+  {
+   "id": "a638590f-70b9-4cb0-9db6-2492f48f2220",
+   "name": "Webhook (opportunity approve/reject)",
+   "type": "n8n-nodes-base.webhook",
+   "position": [
+    -112,
+    336
+   ],
+   "webhookId": "2406e902-3adc-4962-bcd7-c16051856533",
+   "parameters": {
+    "path": "opportunity-approval",
+    "options": {},
+    "responseMode": "responseNode"
+   },
+   "typeVersion": 2.1
   },
-  "settings": {
-    "executionOrder": "v1",
-    "availableInMCP": true
+  {
+   "id": "afd5f3a6-dfd5-42a4-81bd-f65933e6c28c",
+   "name": "Verify Signature",
+   "type": "n8n-nodes-base.code",
+   "position": [
+    224,
+    336
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`opportunity:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst q = ($('Webhook (opportunity approve/reject)').first().json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid, query: { id: idOk ? id : '', action: actionOk ? action : '' } } }];",
+    "language": "javaScript"
+   },
+   "typeVersion": 2
   },
-  "meta": {
-    "aiBuilderAssisted": true,
-    "builderVariant": "mcp"
+  {
+   "id": "7bef1523-7f0b-4e7d-acbb-896514b96e07",
+   "name": "Signature Valid?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    448,
+    336
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 2,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "strict"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "boolean",
+        "operation": "true"
+       },
+       "leftValue": "={{ $json.valid }}",
+       "rightValue": true
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "86c52820-17e3-4ba5-9937-d67c00688ef8",
+   "name": "Approved?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    672,
+    240
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 2,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "strict"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       },
+       "leftValue": "={{ $json.query.action }}",
+       "rightValue": "approve"
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "17ff8bcd-b9fb-492d-9b82-e58aa370dbe5",
+   "name": "Mark Opportunity Approved",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    896,
+    96
+   ],
+   "parameters": {
+    "query": "=UPDATE campaigns\nSET opportunity_status = 'created', opportunity_created_at = now()\nWHERE id = {{ $json.query.id }} AND opportunity_status = 'offered'\nRETURNING id, account, salesforce_campaign_id;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "9a2872c6-9191-441a-8dc1-afa70405b1d6",
+   "name": "Opportunity Claimed?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    1120,
+    96
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 2,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "strict"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty"
+       },
+       "leftValue": "={{ $json.id }}",
+       "rightValue": ""
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "f654b0aa-aca8-4ece-a99f-93d7ed7c059f",
+   "name": "Create Salesforce Opportunity",
+   "type": "n8n-nodes-base.salesforce",
+   "onError": "continueRegularOutput",
+   "position": [
+    1344,
+    96
+   ],
+   "parameters": {
+    "name": "={{ $json.account }} — Opportunity",
+    "resource": "opportunity",
+    "closeDate": "={{ $now.plus({days: 30}).toISO() }}",
+    "operation": "create",
+    "stageName": "Qualify",
+    "additionalFields": {
+     "description": "=Auto-offered after the campaign reached its engagement goal (goal_met). Created via human-approved Opportunity Offer email link. Originating Salesforce Campaign: {{ $json.salesforce_campaign_id || 'none' }}"
+    }
+   },
+   "credentials": {
+    "salesforceOAuth2Api": {
+     "id": "HPnx6HXN8COY4aOe",
+     "name": "Salesforce account 2"
+    }
+   },
+   "typeVersion": 1.1
+  },
+  {
+   "id": "e015ba75-32cc-459b-a050-160091dc8647",
+   "name": "Opportunity Created?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    1568,
+    96
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 2,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "strict"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty"
+       },
+       "leftValue": "={{ $json.id }}",
+       "rightValue": ""
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "31f53008-d24d-4886-be98-f632bb9f8075",
+   "name": "Mark Opportunity Synced",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1792,
+    0
+   ],
+   "parameters": {
+    "query": "=UPDATE campaigns SET salesforce_opportunity_id = '{{ $json.id }}' WHERE id = {{ $('Mark Opportunity Approved').first().json.id }};",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "87942e3e-b651-444b-a110-bb309933c524",
+   "name": "Respond Approved",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    2016,
+    0
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "text",
+    "responseBody": "=✓ Opportunity created in Salesforce for {{ $('Mark Opportunity Approved').first().json.account }}."
+   },
+   "typeVersion": 1.5
+  },
+  {
+   "id": "0c589c3d-1a0f-4c87-8ee2-2333d2193dc0",
+   "name": "Mark Opportunity Error",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1792,
+    192
+   ],
+   "parameters": {
+    "query": "UPDATE campaigns SET opportunity_status = 'error', opportunity_error = $1 WHERE id = $2;",
+    "options": {
+     "queryReplacement": "={{ ($json.error && $json.error.message) || $json.message || 'Unknown Salesforce error' }}, {{ $('Mark Opportunity Approved').first().json.id }}"
+    },
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "efd36a0f-86bf-4327-aadf-540edab887d9",
+   "name": "Respond Error",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    2016,
+    192
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "text",
+    "responseBody": "=⚠ Opportunity approval recorded, but the Salesforce write failed for {{ $('Mark Opportunity Approved').first().json.account }}. Check the dashboard."
+   },
+   "typeVersion": 1.5
+  },
+  {
+   "id": "f2a41f2c-6ccd-4f42-8385-ff60f7e14897",
+   "name": "Respond Already Processed",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    1344,
+    288
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "text",
+    "responseBody": "This opportunity offer has already been processed."
+   },
+   "typeVersion": 1.5
+  },
+  {
+   "id": "5f571c27-2a8a-41cd-bf63-c5ec9717710b",
+   "name": "Mark Opportunity Declined",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    896,
+    432
+   ],
+   "parameters": {
+    "query": "=UPDATE campaigns\nSET opportunity_status = 'declined'\nWHERE id = {{ $json.query.id }} AND opportunity_status = 'offered'\nRETURNING id, account;",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "2565c2dd-fe68-4646-aa60-a8346bf7735f",
+   "name": "Decline Claimed?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    1120,
+    432
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 2,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "strict"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty"
+       },
+       "leftValue": "={{ $json.id }}",
+       "rightValue": ""
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "97dce0b8-9970-4114-8361-02d0aa6ad484",
+   "name": "Respond Declined",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    1344,
+    480
+   ],
+   "parameters": {
+    "options": {},
+    "respondWith": "text",
+    "responseBody": "=Opportunity offer declined for {{ $json.account }}. No Salesforce record created."
+   },
+   "typeVersion": 1.5
+  },
+  {
+   "id": "defe67bd-5c2a-48ff-b4f9-74247a0f4939",
+   "name": "Respond Invalid Signature",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "position": [
+    672,
+    432
+   ],
+   "parameters": {
+    "options": {
+     "responseCode": 403
+    },
+    "respondWith": "text",
+    "responseBody": "Invalid or expired approval link."
+   },
+   "typeVersion": 1.5
+  },
+  {
+   "id": "13de9b4d-07e4-4b31-ad22-68da944e8bfe",
+   "name": "Get HMAC Secret",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    64,
+    336
+   ],
+   "parameters": {
+    "query": "select value from app_config where key='approval_hmac_secret';",
+    "options": {},
+    "operation": "executeQuery"
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
+  },
+  {
+   "id": "86f15dae-5e6f-4ff0-8671-23c43565a4c4",
+   "name": "SF Sync Error?",
+   "type": "n8n-nodes-base.if",
+   "position": [
+    1344,
+    300
+   ],
+   "parameters": {
+    "options": {},
+    "conditions": {
+     "options": {
+      "version": 3,
+      "leftValue": "",
+      "caseSensitive": true,
+      "typeValidation": "loose"
+     },
+     "combinator": "and",
+     "conditions": [
+      {
+       "id": "sferr1",
+       "operator": {
+        "type": "string",
+        "operation": "notEmpty",
+        "singleValue": true
+       },
+       "leftValue": "={{ $json.error ? 'yes' : '' }}",
+       "rightValue": ""
+      }
+     ]
+    }
+   },
+   "typeVersion": 2.3
+  },
+  {
+   "id": "794523c9-afad-4690-8fa3-c2cb51d3357b",
+   "name": "Log SF Sync Error",
+   "type": "n8n-nodes-base.postgres",
+   "position": [
+    1560,
+    300
+   ],
+   "parameters": {
+    "table": {
+     "__rl": true,
+     "mode": "list",
+     "value": "pipeline_errors",
+     "cachedResultName": "pipeline_errors"
+    },
+    "schema": {
+     "__rl": true,
+     "mode": "list",
+     "value": "public"
+    },
+    "columns": {
+     "value": {
+      "phase": "opportunity-sync",
+      "company": "={{ $('Mark Opportunity Approved').first().json.account }}",
+      "resolved": false,
+      "error_msg": "={{ $json.error?.message || $json.error?.description || JSON.stringify($json.error || {}) }}",
+      "node_name": "Salesforce (Opportunity Approval Handler)",
+      "occurred_at": "={{ $now.toISO() }}"
+     },
+     "schema": [
+      {
+       "id": "id",
+       "type": "number",
+       "display": true,
+       "removed": true,
+       "required": false,
+       "displayName": "id",
+       "defaultMatch": true,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "occurred_at",
+       "type": "dateTime",
+       "display": true,
+       "required": false,
+       "displayName": "occurred_at",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "company",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "company",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "phase",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "phase",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "node_name",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "node_name",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "error_msg",
+       "type": "string",
+       "display": true,
+       "required": false,
+       "displayName": "error_msg",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "resolved",
+       "type": "boolean",
+       "display": true,
+       "required": false,
+       "displayName": "resolved",
+       "defaultMatch": false,
+       "canBeUsedToMatch": true
+      }
+     ],
+     "mappingMode": "defineBelow",
+     "matchingColumns": [
+      "id"
+     ],
+     "attemptToConvertTypes": false,
+     "convertFieldsToString": false
+    },
+    "options": {}
+   },
+   "credentials": {
+    "postgres": {
+     "id": "eR1uo2QGR2ZzwysA",
+     "name": "Postgres account"
+    }
+   },
+   "typeVersion": 2.6
   }
+ ],
+ "connections": {
+  "Approved?": {
+   "main": [
+    [
+     {
+      "node": "Mark Opportunity Approved",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Mark Opportunity Declined",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "SF Sync Error?": {
+   "main": [
+    [
+     {
+      "node": "Log SF Sync Error",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get HMAC Secret": {
+   "main": [
+    [
+     {
+      "node": "Verify Signature",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Decline Claimed?": {
+   "main": [
+    [
+     {
+      "node": "Respond Declined",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Respond Already Processed",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Signature Valid?": {
+   "main": [
+    [
+     {
+      "node": "Approved?",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Respond Invalid Signature",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Verify Signature": {
+   "main": [
+    [
+     {
+      "node": "Signature Valid?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Opportunity Claimed?": {
+   "main": [
+    [
+     {
+      "node": "Create Salesforce Opportunity",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Respond Already Processed",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Opportunity Created?": {
+   "main": [
+    [
+     {
+      "node": "Mark Opportunity Synced",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Mark Opportunity Error",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mark Opportunity Error": {
+   "main": [
+    [
+     {
+      "node": "Respond Error",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mark Opportunity Synced": {
+   "main": [
+    [
+     {
+      "node": "Respond Approved",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mark Opportunity Approved": {
+   "main": [
+    [
+     {
+      "node": "Opportunity Claimed?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mark Opportunity Declined": {
+   "main": [
+    [
+     {
+      "node": "Decline Claimed?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create Salesforce Opportunity": {
+   "main": [
+    [
+     {
+      "node": "Opportunity Created?",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "SF Sync Error?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Webhook (opportunity approve/reject)": {
+   "main": [
+    [
+     {
+      "node": "Get HMAC Secret",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "binaryMode": "separate",
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": "rVr68buB9TD3qR5Y",
+  "timeSavedMode": "fixed",
+  "availableInMCP": true,
+  "executionOrder": "v1"
+ },
+ "pinData": {},
+ "meta": {
+  "exportedAt": "2026-07-12",
+  "sourceWorkflowId": "er7QvTbfSkyc60wx",
+  "activeAtExport": true
+ }
 }
