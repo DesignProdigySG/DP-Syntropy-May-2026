@@ -6,9 +6,13 @@
 
 ## 1. Where does Jocelyn's work overlap with Hon Lam's?
 
-Jocelyn owns the **WHEN engine / RE:AI** (`when-layer-engine-rebuild.onrender.com`) — the upstream intelligence layer that detects accounts worth pursuing and writes account briefs. Hon Lam's pipeline is *downstream* of that: it receives those briefs, runs them through approval, campaigns, and measurement, and sends signals back.
+Jocelyn owns the **WHEN engine / RE:AI** (`when-layer-engine-rebuild.onrender.com`) — the upstream intelligence layer that detects accounts worth pursuing and writes account briefs. Her marketer view (`/engine?view=marketer`) goes as far as **drafting the outreach message**, but it stops there — the rep has no way to actually send it from within Jocelyn's tool.
 
-The integration is half-built and has two specific gaps:
+Hon Lam's pipeline picks up exactly where Jocelyn's leaves off: takes the brief, runs approval, generates a campaign, and handles the sending side. The catch is that "sending" currently means everyone shares the same DP email/Smartlead account — there's no per-rep sending identity. And Hon Lam adds reporting and tracking on top (GA4, Calendly, Gmail, Salesforce readback, adaptive decisions) which Jocelyn's engine doesn't have.
+
+**The open question between them is the feedback loop** — Jocelyn's engine ideally needs to know what happened after the brief was acted on (did the outreach land? was there a meeting? did the human reject the approach?) so it can re-score the account. Hon Lam has built the send-side of that feedback, but Jocelyn's engine has no endpoint to receive it yet. How easy that is to add depends entirely on Jocelyn's architecture.
+
+Hon Lam's pipeline is *downstream* of Jocelyn's. The integration is half-built and has two specific gaps:
 
 **Gap 1 — Inbound (WHEN → pipeline): wireable now, not yet wired.**
 The WHEN engine's Settings page has an "Integrations → Webhook URL" field. Setting it to `https://designprodigy.app.n8n.cloud/webhook/delivery-layer` is all it takes for the WHEN engine to push briefs directly into Hon Lam's pipeline. This hasn't been done yet.
