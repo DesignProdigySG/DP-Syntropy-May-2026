@@ -10,7 +10,13 @@ Jocelyn owns the **WHEN engine / RE:AI** (`when-layer-engine-rebuild.onrender.co
 
 Hon Lam's pipeline picks up exactly where Jocelyn's leaves off: takes the brief, runs approval, generates a campaign, and handles the sending side. The catch is that "sending" currently means everyone shares the same DP email/Smartlead account — there's no per-rep sending identity. And Hon Lam adds reporting and tracking on top (GA4, Calendly, Gmail, Salesforce readback, adaptive decisions) which Jocelyn's engine doesn't have.
 
-**The open question between them is the feedback loop** — Jocelyn's engine ideally needs to know what happened after the brief was acted on (did the outreach land? was there a meeting? did the human reject the approach?) so it can re-score the account. Hon Lam has built the send-side of that feedback, but Jocelyn's engine has no endpoint to receive it yet. How easy that is to add depends entirely on Jocelyn's architecture.
+**The seam between them is the key thing to figure out.** Jocelyn's engine actually goes quite far — intelligence, buying group, content generation, angle adjustment, and approval — stopping just short of activation (e.g. the "draft email" button doesn't open a real draft in the rep's inbox). Hon Lam's pipeline picks up exactly there: getting the approved draft into Gmail, tracking it, and measuring outcomes. So it's less a duplication problem and more two halves of one flow that aren't connected yet.
+
+How hard the connection is to make is currently **unknown** — we don't have visibility into Jocelyn's codebase or data structures, so the integration could be a simple webhook POST or could require meaningful reconciliation between the two systems' data shapes. Worth getting access to her repo to understand what her approval state and content format actually look like before assuming the join is easy.
+
+It's also worth noting that some of the overlap in what each system covers likely reflects the two workstreams being built in parallel without full visibility into each other, rather than deliberate duplication — good to align on going forward.
+
+**The open question on the feedback loop** — Jocelyn's engine ideally needs to know what happened after outreach was sent (did it land? was there a meeting? did a human reject the approach?) so it can re-score accounts. Hon Lam has built the send-side of that feedback, but Jocelyn's engine has no endpoint to receive it yet. How easy that is to add depends on her architecture.
 
 Hon Lam's pipeline is *downstream* of Jocelyn's. The integration is half-built and has two specific gaps:
 
