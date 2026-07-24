@@ -6,7 +6,7 @@
 
 ## Context
 
-We are working on a project called **DP Syntropy** at Design Prodigy (a B2B marketing/sales consultancy). Two interns have built two separate systems that need to be understood and eventually integrated into one unified product:
+We are working on a project called **DP Syntropy** at Design Prodigy (a B2B marketing/sales consultancy). Two people have built two separate systems that need to be understood and eventually integrated into one unified product:
 
 **Jocelyn's system — WHEN Engine / RE:AI** (`when-layer-engine-rebuild.onrender.com`)
 A marketing intelligence tool. The marketer view shows account tiles (target company logos), per-account event feeds, buying group members, and content generation with angle adjustment. It goes as far as drafting and approving outreach — but stops short of actually sending anything (e.g. the "draft email" button doesn't open a real draft in the rep's inbox). Built on Render with a Render Postgres database. We do not yet have access to Jocelyn's codebase or schema.
