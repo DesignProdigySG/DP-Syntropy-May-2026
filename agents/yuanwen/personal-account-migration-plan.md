@@ -30,6 +30,13 @@ company-owned, not another personal account.
 - [x] Confirmed live `app_config.rep_notification_email` = `chiahonlam.school@gmail.com`
       (queried Supabase directly — this is a *different* address from the Gmail
       *sending* credential, easy to conflate the two).
+- [x] **Updated `app_config.rep_notification_email` to `yuanwen@dp.sg`** — this
+      is a live config value, not behind a draft/publish gate, so it took effect
+      immediately: Cadence Scheduler's daily digest and Opportunity Offer's
+      approval emails will send here starting with their next scheduled run.
+      Delivery Layer's `Approval Email` will also pick this up, but only once
+      the draft fix above is published — until then it's still hardcoded to
+      `honlamchia@gmail.com` in production.
 - [x] Found and fixed the first of three hardcoded-recipient holdouts:
       **Delivery Layer** (`HQdvWtRfLdzDTN3X`) → `Approval Email` node had
       `sendTo: "honlamchia@gmail.com"` as a literal string, never reading config
@@ -61,30 +68,38 @@ company-owned, not another personal account.
       nodes need more than bare "send" (`Search Replies (Gmail)` does `getAll`,
       `Digest Reply Logger` does `markAsRead`, `Reply Triage`/`Action Approval
       Handler` create drafts).
-- [ ] Update `app_config.rep_notification_email` to the new address (this is
-      what actually flips behavior on the fix already landed above).
 - [ ] Re-point all 24 Gmail nodes to the new credential, one at a time,
       verifying the assigned credential after each change (this project has a
       documented history — see `PROJECT_AUDIT.md` — of n8n silently
       mis-wiring credentials during automated edits; don't batch this blind).
-      Full node list gathered earlier this session:
-      - Delivery Layer: `Approval Email`, `Send a message4`
-      - Brief Approval Handler: `Send Brief to Rep`, `Action Approval Email`
-      - Action Approval Handler: `Send Action to Rep`, `Create Ready-to-Send Draft`
-      - Cadence Scheduler: `Send Daily Digest`
-      - Opportunity Offer: `Send Opportunity Offer Email`
-      - LinkedIn Post Generator: `Send Approval Email`
-      - LinkedIn Post Approval Handler: `Send Publish Email`
-      - Reply Triage: `Notify Rep`, `Create Draft Reply`
-      - Digest Reply Logger: `Find Digest Replies`, `Mark Reply Read`, `Send Confirmation`
-      - Pre-Meeting Prep: `Send Prep Sheet`
-      - Stale Touch Nudge: `Send Nudge`
-      - Weekly Wins Report: `Send Report`
-      - Client Onboarding: `Confirmation Email`
-      - Tool Campaign Provisioner: `Provisioning Summary`
-      - Pipeline Heartbeat: `Alert Heartbeat Problems`
-      - pg_cron Failure Alert: `Alert Cron Failures`
-      - Error Workflow: `Send a message`
+      Grouped by priority (core spine first, monitoring/alerts last):
+
+      **Core spine — most active, most visible to a rep**
+      - [ ] Delivery Layer: `Approval Email` (draft fix landed, unpublished), `Send a message4`
+      - [ ] Brief Approval Handler: `Send Brief to Rep`, `Action Approval Email`
+      - [ ] Action Approval Handler: `Send Action to Rep`, `Create Ready-to-Send Draft`
+      - [ ] Cadence Scheduler: `Send Daily Digest`
+      - [ ] Action Outcome Measurement: `Search Replies (Gmail)` (a *read*, not a send —
+            matters most for the in-flight cutover-window issue below)
+
+      **Daily/scheduled jobs — next**
+      - [ ] Opportunity Offer: `Send Opportunity Offer Email`
+      - [ ] Reply Triage: `Notify Rep`, `Create Draft Reply`
+      - [ ] Digest Reply Logger: `Find Digest Replies`, `Mark Reply Read`, `Send Confirmation`
+      - [ ] Pre-Meeting Prep: `Send Prep Sheet`
+      - [ ] Stale Touch Nudge: `Send Nudge`
+      - [ ] Weekly Wins Report: `Send Report`
+      - [ ] Client Onboarding: `Confirmation Email`
+      - [ ] Tool Campaign Provisioner: `Provisioning Summary`
+
+      **Broadcast/lower-traffic — after that**
+      - [ ] LinkedIn Post Generator: `Send Approval Email`
+      - [ ] LinkedIn Post Approval Handler: `Send Publish Email`
+
+      **Monitoring/alerts — last, lowest stakes if these lag**
+      - [ ] Pipeline Heartbeat: `Alert Heartbeat Problems`
+      - [ ] pg_cron Failure Alert: `Alert Cron Failures`
+      - [ ] Error Workflow: `Send a message`
       - Action Outcome Measurement: `Search Replies (Gmail)`
 - [ ] **Cutover window:** don't revoke Hon Lam's access to `honlamchia@gmail.com`
       until every action sent from it before the switch has aged past its
