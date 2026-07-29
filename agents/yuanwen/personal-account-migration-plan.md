@@ -79,6 +79,37 @@ company-owned, not another personal account.
       hardcoded, `RE_HOME_RUNBOOK.md`, is itself stale). No fix needed here.
 - [x] Checked **Cadence Scheduler** — already reads `rep_notification_email`
       with a safe fallback. No fix needed.
+- [x] **Published the Delivery Layer fix and verified it end-to-end with a real
+      execution** (not a simulation) — found and fixed two more real bugs along
+      the way:
+      1. The draft had silently reverted to a pre-fix state after publishing —
+         `Approval Email`'s `resource`/`operation` fields were missing again
+         despite being fixed and published earlier. Publishing does not appear
+         to rebase future draft edits onto the published state; this project's
+         own `PROJECT_AUDIT.md` documents the same class of issue before
+         ("corrupted unpublished drafts... restored to active versions"). Fixed
+         again, verified clean, re-published.
+      2. **Real bug, not ours:** `Insert rows in a table`'s column mapping had
+         picked up a literal `client_id: 0` (most likely auto-added by the n8n
+         UI when its schema/column list was refreshed in the editor — the
+         `gate1_*` schema-cache investigation earlier in this session). That
+         hardcoded `0` bypassed the `set_pipeline_run_client()` trigger's
+         null-check entirely, violating `pipeline_runs_client_id_fkey` on every
+         real ingest until removed. Removed `client_id` from the mapping
+         (restoring it to unset, matching the original repo export) so the
+         trigger correctly defaults it to `app_config.default_client_id` (`1`,
+         "Design Prodigy (house)").
+      - `execute_workflow` also has its own quirk worth remembering: this
+        workflow has two triggers (a manual one and the real webhook), and the
+        tool silently defaulted to the manual trigger regardless of `inputs.type`.
+        Worked around by temporarily disabling the manual trigger
+        (`setNodeDisabled`), running the real test through the actual webhook,
+        then re-enabling it afterward.
+      - **Confirmed working end-to-end**: real webhook POST → real AI brief
+        written → real S3 upload → real `pipeline_runs` row with `client_id`
+        correctly resolved to `1` → real signed approve/reject links → real
+        Gmail **send** (not draft) to `yuanwen@dp.sg`, `labelIds: ["SENT"]`.
+        Test row deleted after confirming.
 
 ### Left to do
 - [ ] **Decide and provision the actual new mailbox** (direct config vs.
