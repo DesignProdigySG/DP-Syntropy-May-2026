@@ -12,26 +12,45 @@ Priority order agreed: **email first**, then whatever's next in the list below.
 
 ---
 
-## 0. Security fix found and patched while working on the above
+## 0. CRITICAL — there are two separate databases with identical schemas
 
-While verifying the `rep_email` fix (querying the exact SQL `Get HMAC Secret`
-runs), found `app_config.approval_hmac_secret` was **genuinely empty** (length
-0) in production. Every "signed" approve/reject link across the whole
-pipeline (Brief Approval Handler, Action Approval Handler, Opportunity Offer,
-LinkedIn Post Approval Handler, Digest Approve All) is HMAC-SHA256 over a
-public, documented string format (`brief:{id}:{action}`, etc.) — with an empty
-secret, that signature is trivially computable by anyone for any id/action,
-with no real authentication behind it at all.
+**Discovered the hard way, mid-session, after a real end-to-end test kept
+sending to the wrong address despite the config supposedly being fixed.**
 
-- [x] Generated a real 256-bit random secret (`secrets.token_hex(32)`) and set
-      `app_config.approval_hmac_secret` to it directly via Supabase.
-- [x] Checked for real outstanding signed links this would invalidate (any
-      already-sent-but-not-yet-clicked brief/action/opportunity approval) —
-      **zero** pending briefs, actions, or offered opportunities at the time
-      of the fix, so nothing broke.
-- Anything already approved/rejected/actioned before this change is
-  unaffected — only *unclicked, already-sent* links from the empty-secret era
-  would have stopped verifying, and there weren't any.
+The Supabase project reachable via the Supabase MCP connection in this session
+(`ssbdlttcyogtcowvcbaj`, "Intelligent Automation Pipeline") is **not** the
+database n8n's real `Postgres account` credential (`eR1uo2QGR2ZzwysA`) connects
+to. Confirmed conclusively by having both sides report `inet_server_addr()` in
+the same moment: n8n's real connection resolved to a completely different host
+(`2406:da1c:4c7:f801:...`) than the Supabase MCP session (`2406:da18:167b:f901:...`).
+Both databases have byte-for-byte identical schemas (same tables, same
+`app_config` keys, same seeded `clients` row `id=1` "Design Prodigy (house)")
+— almost certainly because this repo's own `setup.sql`/`schema.sql` can be run
+against any fresh Supabase project to produce a structurally indistinguishable
+copy. Every "confirmed live" check made via the Supabase MCP tool earlier in
+this session looked completely legitimate and self-consistent while quietly
+being the wrong database.
+
+**Consequence:** an earlier "fix" (see the security note below) that appeared
+to succeed via direct Supabase queries never touched the real production
+database at all. **The only way confirmed to actually reach the real database
+in this session was through an n8n workflow node using the real `Postgres
+account` credential** (e.g., temporarily repurposing `Get HMAC Secret`'s query,
+running the workflow for real, then reverting the query afterward).
+
+**Open follow-up:** figure out what `ssbdlttcyogtcowvcbaj` actually is (a
+throwaway clone from an earlier session? a project under this account's own
+Supabase login rather than Hon Lam's?) and get proper direct access to the
+*real* project so future work doesn't need this workaround.
+
+## 0b. Security note — corrected
+
+Originally reported here as "found a genuinely empty `approval_hmac_secret` in
+production and fixed it." **That check and fix were performed against the
+wrong database** (see above) — the real production secret was checked
+directly afterward (via the real n8n credential) and is a **genuine, non-empty
+value**. There was no real vulnerability; withdrawing the original claim.
+No action needed here.
 
 ## 1. Email (Gmail) — in progress
 
@@ -51,13 +70,17 @@ company-owned, not another personal account.
 - [x] Confirmed live `app_config.rep_notification_email` = `chiahonlam.school@gmail.com`
       (queried Supabase directly — this is a *different* address from the Gmail
       *sending* credential, easy to conflate the two).
-- [x] **Updated `app_config.rep_notification_email` to `yuanwen@dp.sg`** — this
-      is a live config value, not behind a draft/publish gate, so it took effect
-      immediately: Cadence Scheduler's daily digest and Opportunity Offer's
-      approval emails will send here starting with their next scheduled run.
-      Delivery Layer's `Approval Email` will also pick this up, but only once
-      the draft fix above is published — until then it's still hardcoded to
-      `honlamchia@gmail.com` in production.
+- [x] **Updated `app_config.rep_notification_email` to `yuanwen@dp.sg` —
+      correctly, on the real database this time.** First attempt was made via
+      the Supabase MCP connection and *looked* successful, but (per §0 above)
+      that was the wrong database and never actually took effect — a real
+      end-to-end test kept resolving `chiahonlam.school@gmail.com` despite the
+      "successful" update. Redone through an n8n workflow node using the real
+      `Postgres account` credential, then re-verified with a second real
+      execution: `rep_email` resolved to `yuanwen@dp.sg` for real. Cadence
+      Scheduler and Opportunity Offer will pick this up on their next
+      scheduled run; Delivery Layer's `Approval Email` is confirmed working
+      right now (see below).
 - [x] Found and fixed the first of three hardcoded-recipient holdouts:
       **Delivery Layer** (`HQdvWtRfLdzDTN3X`) → `Approval Email` node had
       `sendTo: "honlamchia@gmail.com"` as a literal string, never reading config
@@ -105,11 +128,21 @@ company-owned, not another personal account.
         Worked around by temporarily disabling the manual trigger
         (`setNodeDisabled`), running the real test through the actual webhook,
         then re-enabling it afterward.
-      - **Confirmed working end-to-end**: real webhook POST → real AI brief
-        written → real S3 upload → real `pipeline_runs` row with `client_id`
-        correctly resolved to `1` → real signed approve/reject links → real
-        Gmail **send** (not draft) to `yuanwen@dp.sg`, `labelIds: ["SENT"]`.
-        Test row deleted after confirming.
+      - First "confirmed working end-to-end" pass (real webhook → real AI
+        brief → real S3 upload → real `pipeline_runs` row → real signed links
+        → real Gmail **send**, `labelIds: ["SENT"]`) actually sent to
+        `chiahonlam.school@gmail.com`, not `yuanwen@dp.sg` — because at that
+        point `rep_notification_email` had only been updated on the wrong
+        database (§0). Re-ran after fixing that for real: **`rep_email`
+        resolved to `yuanwen@dp.sg` for real, confirmed directly in the
+        execution data.** All test rows created across this whole diagnostic
+        chain (`450`–`453`, several account names) were in the *real*
+        production `pipeline_runs` table (via the real credential) — deleted
+        via the same real-credential route, confirmed via `RETURNING`. Two of
+        the intermediate runs did send real test-labeled approval emails to
+        Hon Lam's actual `chiahonlam.school@gmail.com` before the fix landed —
+        worth a heads-up to him, clearly diagnostic content, not anything a
+        real prospect would see.
 
 ### Left to do
 - [ ] **Decide and provision the actual new mailbox** (direct config vs.
@@ -214,3 +247,12 @@ slowest, do last — everything above assumes n8n/Supabase stay put for now.
   about Opportunity Offer being hardcoded) — always verify against the live
   workflow/database, not just the markdown, before acting on a claim in these
   docs.
+- **Biggest one: there are two databases with identical schemas, and only one
+  is real** (see §0). Any Supabase MCP query in this session hits the wrong
+  one — checks and writes both *look* completely legitimate while doing
+  nothing real. The only confirmed-reliable way to read or write the actual
+  production database is through an n8n workflow node using the real
+  `Postgres account` credential. Verify which database you're actually
+  touching (`inet_server_addr()`) before trusting any "confirmed" result,
+  including everything earlier in this document written before this was
+  discovered.
