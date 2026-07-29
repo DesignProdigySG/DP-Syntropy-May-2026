@@ -12,6 +12,27 @@ Priority order agreed: **email first**, then whatever's next in the list below.
 
 ---
 
+## 0. Security fix found and patched while working on the above
+
+While verifying the `rep_email` fix (querying the exact SQL `Get HMAC Secret`
+runs), found `app_config.approval_hmac_secret` was **genuinely empty** (length
+0) in production. Every "signed" approve/reject link across the whole
+pipeline (Brief Approval Handler, Action Approval Handler, Opportunity Offer,
+LinkedIn Post Approval Handler, Digest Approve All) is HMAC-SHA256 over a
+public, documented string format (`brief:{id}:{action}`, etc.) — with an empty
+secret, that signature is trivially computable by anyone for any id/action,
+with no real authentication behind it at all.
+
+- [x] Generated a real 256-bit random secret (`secrets.token_hex(32)`) and set
+      `app_config.approval_hmac_secret` to it directly via Supabase.
+- [x] Checked for real outstanding signed links this would invalidate (any
+      already-sent-but-not-yet-clicked brief/action/opportunity approval) —
+      **zero** pending briefs, actions, or offered opportunities at the time
+      of the fix, so nothing broke.
+- Anything already approved/rejected/actioned before this change is
+  unaffected — only *unclicked, already-sent* links from the empty-secret era
+  would have stopped verifying, and there weren't any.
+
 ## 1. Email (Gmail) — in progress
 
 **The problem:** every Gmail node in every workflow (24 nodes across ~15
