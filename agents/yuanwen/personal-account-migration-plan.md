@@ -222,10 +222,48 @@ org). Bigger lift than S3 since more nodes/workflows touch it (Task/Lead/Campaig
 sync across Brief Approval Handler, Action Approval Handler, Opportunity Approval
 Handler, Salesforce Activities Read-back, Salesforce Task Outcome Sync).
 
-## 5. n8n / Supabase ownership itself — not started
+## 5. n8n / Supabase ownership itself — not started, scoped
 
-The meta-question of who owns the orchestration layer and the database. Biggest,
-slowest, do last — everything above assumes n8n/Supabase stay put for now.
+The meta-question of who owns the orchestration layer and the database.
+
+**Supabase side is more concretely scoped now than "biggest, slowest, do
+last" implied:**
+- A company-owned Supabase project already exists — `ssbdlttcyogtcowvcbaj`
+  ("Intelligent Automation Pipeline"), confirmed to belong to the **"Design
+  Prodigy" organization**, not a personal account. It's schema-ready (same
+  tables, same seed data) but currently **disconnected** — n8n's real
+  `Postgres account` credential (`eR1uo2QGR2ZzwysA`, homed in Hon Lam's
+  personal n8n project) points at a different server entirely, confirmed via
+  `inet_server_addr()` returning different hosts on each side.
+- Real data volume on the live (Hon Lam's) database, checked directly: 427
+  `pipeline_runs` (414 non-test-tagged), 318 `campaigns`, 4,379 `actions`, 202
+  `engagement_events`. **Assessed as Hon Lam's own simulated/proof-of-concept
+  test traffic from building the pipeline (LEVEL1/LEVEL2 proofs, disposable
+  QA runs, uploaded sample briefs), not real client campaigns** — nice to have
+  a copy of, not something that blocks or complicates the migration if it
+  isn't preserved.
+- **Migration path, once someone has access to Hon Lam's n8n login:**
+  1. *(Optional, cheap insurance)* export/backup the live database first —
+     a Supabase project backup or `pg_dump`, a few minutes of someone's time.
+  2. Edit the existing `Postgres account` credential's connection details to
+     point at `db.ssbdlttcyogtcowvcbaj.supabase.co` instead (or create a new
+     credential and repoint it — editing the existing one is much less work,
+     since every Postgres node across all ~15 workflows shares that single
+     credential ID, so fixing it once redirects everything at once).
+  3. Re-verify end to end the same way the email fix was verified (a real
+     webhook execution through Delivery Layer, confirming a real DB write and
+     a real approval email).
+  - Not doable through the tools available in this session — n8n's API
+    surface here can *assign* an existing credential ID to a node, but not
+    create or edit a credential's actual connection details. Needs a real
+    login to Hon Lam's n8n account.
+- One known leftover from this session's diagnostics: a single test row
+  (`ZZZ-QA Row-Count-Check Co`) is still sitting in the live `pipeline_runs`
+  table, uncleaned. Low stakes, easy to remove whenever someone's in there.
+
+n8n itself (the orchestration layer, not just the database) staying on Hon
+Lam's personal account is the remaining, genuinely biggest piece — everything
+above assumes n8n itself stays put for now.
 
 ---
 
