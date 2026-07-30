@@ -144,56 +144,39 @@ company-owned, not another personal account.
         worth a heads-up to him, clearly diagnostic content, not anything a
         real prospect would see.
 
-### Left to do
-- [ ] **Decide and provision the actual new mailbox** (direct config vs.
-      `servicedesk@dp.sg` fallback) — this is the one blocking prerequisite,
-      an account/domain decision, not an n8n change.
-- [ ] Create the new Gmail OAuth2 credential in n8n once the mailbox exists.
-      Grant full scope up front (send, compose/drafts, read, modify) — several
-      nodes need more than bare "send" (`Search Replies (Gmail)` does `getAll`,
-      `Digest Reply Logger` does `markAsRead`, `Reply Triage`/`Action Approval
-      Handler` create drafts).
-- [ ] Re-point all 24 Gmail nodes to the new credential, one at a time,
-      verifying the assigned credential after each change (this project has a
-      documented history — see `PROJECT_AUDIT.md` — of n8n silently
-      mis-wiring credentials during automated edits; don't batch this blind).
-      Grouped by priority (core spine first, monitoring/alerts last):
-
-      **Core spine — most active, most visible to a rep**
-      - [ ] Delivery Layer: `Approval Email` (draft fix landed, unpublished), `Send a message4`
-      - [ ] Brief Approval Handler: `Send Brief to Rep`, `Action Approval Email`
-      - [ ] Action Approval Handler: `Send Action to Rep`, `Create Ready-to-Send Draft`
-      - [ ] Cadence Scheduler: `Send Daily Digest`
-      - [ ] Action Outcome Measurement: `Search Replies (Gmail)` (a *read*, not a send —
-            matters most for the in-flight cutover-window issue below)
-
-      **Daily/scheduled jobs — next**
-      - [ ] Opportunity Offer: `Send Opportunity Offer Email`
-      - [ ] Reply Triage: `Notify Rep`, `Create Draft Reply`
-      - [ ] Digest Reply Logger: `Find Digest Replies`, `Mark Reply Read`, `Send Confirmation`
-      - [ ] Pre-Meeting Prep: `Send Prep Sheet`
-      - [ ] Stale Touch Nudge: `Send Nudge`
-      - [ ] Weekly Wins Report: `Send Report`
-      - [ ] Client Onboarding: `Confirmation Email`
-      - [ ] Tool Campaign Provisioner: `Provisioning Summary`
-
-      **Broadcast/lower-traffic — after that**
-      - [ ] LinkedIn Post Generator: `Send Approval Email`
-      - [ ] LinkedIn Post Approval Handler: `Send Publish Email`
-
-      **Monitoring/alerts — last, lowest stakes if these lag**
-      - [ ] Pipeline Heartbeat: `Alert Heartbeat Problems`
-      - [ ] pg_cron Failure Alert: `Alert Cron Failures`
-      - [ ] Error Workflow: `Send a message`
-      - Action Outcome Measurement: `Search Replies (Gmail)`
-- [ ] **Cutover window:** don't revoke Hon Lam's access to `honlamchia@gmail.com`
-      until every action sent from it before the switch has aged past its
-      `window_days` (typically 14) — otherwise in-flight replies go unmeasured.
-- [ ] Publish the Delivery Layer draft (and any other edited drafts) once the
-      new address is live in config — currently sitting unpublished on purpose.
-- [ ] End-to-end test with a synthetic brief through ①→⑤ confirming the
-      approval email, the digest, and the Gmail draft all land in the new
-      mailbox, not the old one.
+- [x] **Mailbox decided and credential swapped — `servicedesk@dp.sg`, all 24
+      nodes at once.** Turns out the per-node repoint checklist below was never
+      actually necessary: like the Postgres credential, **every single Gmail
+      node across every workflow shares the exact same credential ID**
+      (`vKMX1dZQWsi80BVz`, "Gmail OAuth2 API") — there's no separate credential
+      per node to hunt down individually. Yuan Wen edited that one credential's
+      OAuth connection directly in n8n to authenticate as `servicedesk@dp.sg`
+      instead of `honlamchia@gmail.com`. One edit, every node redirected.
+      - Checked for in-flight items this sudden mailbox switch (affects reads
+        as well as sends — reply-detection, digest parsing) could strand:
+        **zero** pending briefs, recommended actions, executed-awaiting-reply
+        actions, or offered opportunities on the (freshly-migrated, low-
+        traffic) real database. No cutover risk today.
+      - **Verified end-to-end with a real execution**: Delivery Layer's
+        `Approval Email` sent successfully (`labelIds: ["SENT"]`) with the new
+        credential — confirms the OAuth scope granted during setup is
+        sufficient (send at minimum; still worth confirming read/modify/draft
+        scopes are also granted, since `Search Replies (Gmail)`, `Digest Reply
+        Logger`'s `markAsRead`, and the draft-creating nodes need more than
+        bare send).
+      - Test row cleaned up after.
+- [ ] **Cutover window** still applies in principle — don't revoke Hon Lam's
+      access to `honlamchia@gmail.com` until any action sent from it before the
+      switch has aged past its `window_days` (typically 14). Moot today since
+      there was nothing in flight, but worth remembering if this ever needs
+      redoing against a database with real activity.
+- [x] Delivery Layer's `Approval Email` config-read fix is published and live
+      (confirmed `versionId` == `activeVersionId` during the credential-swap
+      verification pass) — the credential swap itself doesn't need a separate
+      publish, since credentials aren't part of the draft/active version split.
+- [ ] Confirm the granted OAuth scope covers read/modify/drafts, not just send
+      (see above) — a real Reply Triage/Digest Reply Logger run would confirm
+      this conclusively if one hasn't happened since the swap.
 
 ---
 
