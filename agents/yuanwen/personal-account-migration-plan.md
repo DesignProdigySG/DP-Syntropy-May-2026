@@ -222,48 +222,38 @@ org). Bigger lift than S3 since more nodes/workflows touch it (Task/Lead/Campaig
 sync across Brief Approval Handler, Action Approval Handler, Opportunity Approval
 Handler, Salesforce Activities Read-back, Salesforce Task Outcome Sync).
 
-## 5. n8n / Supabase ownership itself — not started, scoped
+## 5. Supabase migration — DONE. n8n itself still on Hon Lam's account.
 
-The meta-question of who owns the orchestration layer and the database.
+**The database migration is complete and verified.** Yuan Wen got direct
+Supabase dashboard access to the company-owned project (`ssbdlttcyogtcowvcbaj`,
+org "Design Prodigy"), pulled the connection string from Project Settings →
+Database (used the **connection pooler**, not a direct connection — fine for
+this workload, no session-dependent features in play), and edited the
+existing `Postgres account` credential (`eR1uo2QGR2ZzwysA`) in n8n directly —
+no data copy from Hon Lam's old database was done (assessed as his own
+simulated/proof-of-concept test traffic, not real client data — not needed).
 
-**Supabase side is more concretely scoped now than "biggest, slowest, do
-last" implied:**
-- A company-owned Supabase project already exists — `ssbdlttcyogtcowvcbaj`
-  ("Intelligent Automation Pipeline"), confirmed to belong to the **"Design
-  Prodigy" organization**, not a personal account. It's schema-ready (same
-  tables, same seed data) but currently **disconnected** — n8n's real
-  `Postgres account` credential (`eR1uo2QGR2ZzwysA`, homed in Hon Lam's
-  personal n8n project) points at a different server entirely, confirmed via
-  `inet_server_addr()` returning different hosts on each side.
-- Real data volume on the live (Hon Lam's) database, checked directly: 427
-  `pipeline_runs` (414 non-test-tagged), 318 `campaigns`, 4,379 `actions`, 202
-  `engagement_events`. **Assessed as Hon Lam's own simulated/proof-of-concept
-  test traffic from building the pipeline (LEVEL1/LEVEL2 proofs, disposable
-  QA runs, uploaded sample briefs), not real client campaigns** — nice to have
-  a copy of, not something that blocks or complicates the migration if it
-  isn't preserved.
-- **Migration path, once someone has access to Hon Lam's n8n login:**
-  1. *(Optional, cheap insurance)* export/backup the live database first —
-     a Supabase project backup or `pg_dump`, a few minutes of someone's time.
-  2. Edit the existing `Postgres account` credential's connection details to
-     point at `db.ssbdlttcyogtcowvcbaj.supabase.co` instead (or create a new
-     credential and repoint it — editing the existing one is much less work,
-     since every Postgres node across all ~15 workflows shares that single
-     credential ID, so fixing it once redirects everything at once).
-  3. Re-verify end to end the same way the email fix was verified (a real
-     webhook execution through Delivery Layer, confirming a real DB write and
-     a real approval email).
-  - Not doable through the tools available in this session — n8n's API
-    surface here can *assign* an existing credential ID to a node, but not
-    create or edit a credential's actual connection details. Needs a real
-    login to Hon Lam's n8n account.
-- One known leftover from this session's diagnostics: a single test row
-  (`ZZZ-QA Row-Count-Check Co`) is still sitting in the live `pipeline_runs`
-  table, uncleaned. Low stakes, easy to remove whenever someone's in there.
+**Verified with a real end-to-end execution** through Delivery Layer:
+`inet_server_addr()` now resolves to `ssbdlttcyogtcowvcbaj`'s actual host
+(`2406:da18:167b:f901:...`, matching what was confirmed earlier as the
+company project's address) — n8n is genuinely talking to the new database.
+`rep_email` correctly resolved to `yuanwen@dp.sg`, the `client_id` trigger
+correctly resolved to `1`, and a real approval email sent successfully.
+Test row cleaned up afterward (and this time, directly via Supabase MCP,
+since it's now genuinely the same database n8n uses).
 
-n8n itself (the orchestration layer, not just the database) staying on Hon
-Lam's personal account is the remaining, genuinely biggest piece — everything
-above assumes n8n itself stays put for now.
+One now-orphaned leftover: the earlier `ZZZ-QA Row-Count-Check Co` test row
+is stranded on Hon Lam's *old* database, which is no longer reachable from
+here now that the credential points elsewhere. Harmless — that old database
+is being retired anyway.
+
+**Remaining:** n8n itself (the orchestration layer — where every workflow,
+credential, and this Postgres connection actually lives) is still hosted
+under Hon Lam's personal n8n account/login. Moving the database was the
+piece that could be done without needing n8n itself to move first; migrating
+n8n itself is the genuinely biggest remaining piece of "get off personal
+accounts," and everything fixed so far still depends on his n8n instance
+staying up until that happens.
 
 ---
 
