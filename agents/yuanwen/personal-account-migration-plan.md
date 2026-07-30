@@ -197,15 +197,31 @@ company-owned, not another personal account.
 
 ---
 
-## 2. GA4 property — not started, cheapest win available
+## 2. GA4 — property flip done; service account credential still Hon Lam's
 
-Live check (Supabase, queried directly): `app_config.ga4_property_id` =
-`542471069`, which `PROJECT_CONTEXT_HANDOFF_2026-07-08.md` explicitly labels as
-**Hon Lam's own personal GA4 property**. A DP-owned property (`399321337`)
-already has the service account granted Viewer access as of 2026-07-08 — the
-swap to it was simply never made. This is a single config value change once
-someone confirms `399321337` is the intended final property. Lowest effort of
-everything on this list.
+Two separate things bundled under "GA4," same pattern as Gmail/Postgres:
+which property gets read, and who's actually authenticating to read it.
+
+- [x] **Property flip — done.** `app_config.ga4_property_id` was `542471069`
+      (confirmed live-verified by Yuan Wen as **not** a Design Prodigy
+      property — worth noting the docs' framing of it as "Hon Lam's own" was
+      taken on faith, same caution as everything else in this doc). Updated
+      to `399321337`, which Yuan Wen independently confirmed *is* a genuine
+      Design Prodigy GA4 property (checked directly in Google Analytics, not
+      just inferred from repo docs — the repo alone can't be trusted for this
+      after everything else caught stale today). Live config value, took
+      effect immediately, no publish gate.
+- [ ] **Service account credential — not started, needs external GCP work.**
+      The `Query GA4` node's credential is literally named
+      `"Hon Lam's Google Service Account for GA4"` (id `y2gRhCm6qQpZSW4d`),
+      confirmed directly via `list_credentials` — homed in his personal n8n
+      project, no ambiguity. To fix: someone needs access to a **company-owned
+      Google Cloud project** to create a new service account there, enable the
+      Google Analytics Data API, grant that new service account Viewer access
+      on GA4 property `399321337`, generate its JSON key, create a new
+      credential in n8n, and repoint `Query GA4` to it. External Google Cloud
+      Console work, not scriptable from here — same category as needing
+      direct n8n-login access for the Postgres/Gmail credential swaps.
 
 ## 3. AWS S3 — not started
 
