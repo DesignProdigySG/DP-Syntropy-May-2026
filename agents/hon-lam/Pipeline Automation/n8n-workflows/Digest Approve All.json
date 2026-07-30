@@ -1,250 +1,238 @@
 {
- "name": "Digest Approve All",
- "nodes": [
-  {
-   "id": "52b044c2-5de0-4785-a934-f41754b67d7c",
-   "name": "Webhook (digest approval)",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    96
-   ],
-   "webhookId": "51448f59-954a-4c9e-ba7b-2ac757c05636",
-   "parameters": {
-    "path": "digest-approval",
-    "options": {
-     "allowedOrigins": "*"
+  "name": "Digest Approve All",
+  "nodes": [
+    {
+      "id": "52b044c2-5de0-4785-a934-f41754b67d7c",
+      "name": "Webhook (digest approval)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "digest-approval",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "webhookId": "51448f59-954a-4c9e-ba7b-2ac757c05636"
     },
-    "httpMethod": "GET",
-    "responseMode": "responseNode"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "41dd7098-b1f0-4672-8c99-a10baf661709",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    96
-   ],
-   "parameters": {
-    "query": "select value from app_config where key='approval_hmac_secret';",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "c93ca127-62ce-4b8b-9880-d4373a9a9b17",
-   "name": "Validate Digest Link",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    448,
-    96
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $json.value;\nconst q = ($('Webhook (digest approval)').first().json.query) || {};\nconst idsRaw = String(q.ids || '');\nconst sig = String(q.sig || '');\nconst idsOk = /^[0-9]+(,[0-9]+)*$/.test(idsRaw);\nconst ids = idsOk ? idsRaw.split(',').slice(0, 50) : [];\nlet valid = false;\nif (idsOk && ids.length) {\n  const expected = crypto.createHmac('sha256', SECRET).update(`digest:${idsRaw}:approve`).digest('hex').slice(0, 32);\n  const a = Buffer.from(sig);\n  const b = Buffer.from(expected);\n  valid = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nfunction sign(id) { return crypto.createHmac('sha256', SECRET).update(`action:${id}:approve`).digest('hex').slice(0, 32); }\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nreturn [{ json: { valid, count: ids.length, items: valid ? ids.map(id => ({ id, url: `${base}?id=${id}&action=approve&sig=${sign(id)}` })) : [] } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "72be2edf-ee08-4815-93fb-9bb03e382444",
-   "name": "Valid?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    672,
-    96
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "digestvalid1",
-       "operator": {
-        "type": "boolean",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.valid }}",
-       "rightValue": true
+    {
+      "id": "41dd7098-b1f0-4672-8c99-a10baf661709",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select value from app_config where key='approval_hmac_secret';",
+        "options": {}
       }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "bdd63bc4-c539-4a71-b9e4-dfe36bbef175",
-   "name": "Respond Approving",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    896,
-    0
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "={{ '\\u2713 Approving ' + $json.count + ' action(s) \\u2014 they will show as executed on the dashboard shortly. Already-processed items are skipped automatically.' }}"
-   },
-   "typeVersion": 1.5
-  },
-  {
-   "id": "e501c440-1364-4ee2-b4cc-dabc7353a1c0",
-   "name": "Split Items",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1120,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "return $('Validate Digest Link').first().json.items.map(it => ({ json: it }));"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "8b35844f-c149-46b8-b10c-54de5206d6b0",
-   "name": "Approve Each",
-   "type": "n8n-nodes-base.httpRequest",
-   "onError": "continueRegularOutput",
-   "position": [
-    1344,
-    0
-   ],
-   "parameters": {
-    "url": "={{ $json.url }}",
-    "method": "GET",
-    "options": {
-     "timeout": 30000,
-     "batching": {
-      "batch": {
-       "batchSize": 1,
-       "batchInterval": 500
-      }
-     }
-    }
-   },
-   "typeVersion": 4.4
-  },
-  {
-   "id": "12960dd7-f52a-4542-9c81-ef61adcdfa5f",
-   "name": "Respond Invalid",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    896,
-    192
-   ],
-   "parameters": {
-    "options": {
-     "responseCode": 403
     },
-    "respondWith": "text",
-    "responseBody": "✕ Invalid or expired approve-all link."
-   },
-   "typeVersion": 1.5
+    {
+      "id": "c93ca127-62ce-4b8b-9880-d4373a9a9b17",
+      "name": "Validate Digest Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $json.value;\nconst q = ($('Webhook (digest approval)').first().json.query) || {};\nconst idsRaw = String(q.ids || '');\nconst sig = String(q.sig || '');\nconst idsOk = /^[0-9]+(,[0-9]+)*$/.test(idsRaw);\nconst ids = idsOk ? idsRaw.split(',').slice(0, 50) : [];\nlet valid = false;\nif (idsOk && ids.length) {\n  const expected = crypto.createHmac('sha256', SECRET).update(`digest:${idsRaw}:approve`).digest('hex').slice(0, 32);\n  const a = Buffer.from(sig);\n  const b = Buffer.from(expected);\n  valid = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nfunction sign(id) { return crypto.createHmac('sha256', SECRET).update(`action:${id}:approve`).digest('hex').slice(0, 32); }\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nreturn [{ json: { valid, count: ids.length, items: valid ? ids.map(id => ({ id, url: `${base}?id=${id}&action=approve&sig=${sign(id)}` })) : [] } }];"
+      }
+    },
+    {
+      "id": "72be2edf-ee08-4815-93fb-9bb03e382444",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "digestvalid1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "bdd63bc4-c539-4a71-b9e4-dfe36bbef175",
+      "name": "Respond Approving",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ '\\u2713 Approving ' + $json.count + ' action(s) \\u2014 they will show as executed on the dashboard shortly. Already-processed items are skipped automatically.' }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e501c440-1364-4ee2-b4cc-dabc7353a1c0",
+      "name": "Split Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $('Validate Digest Link').first().json.items.map(it => ({ json: it }));"
+      }
+    },
+    {
+      "id": "8b35844f-c149-46b8-b10c-54de5206d6b0",
+      "name": "Approve Each",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "12960dd7-f52a-4542-9c81-ef61adcdfa5f",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        192
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✕ Invalid or expired approve-all link.",
+        "options": {
+          "responseCode": 403
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook (digest approval)": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Validate Digest Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Digest Link": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond Approving",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Approving": {
+      "main": [
+        [
+          {
+            "node": "Split Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Items": {
+      "main": [
+        [
+          {
+            "node": "Approve Each",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Valid?": {
-   "main": [
-    [
-     {
-      "node": "Respond Approving",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Invalid",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Split Items": {
-   "main": [
-    [
-     {
-      "node": "Approve Each",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Validate Digest Link",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Respond Approving": {
-   "main": [
-    [
-     {
-      "node": "Split Items",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Validate Digest Link": {
-   "main": [
-    [
-     {
-      "node": "Valid?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Webhook (digest approval)": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "mw2KJ3AOea9rhSDT",
-  "activeAtExport": true
- }
 }

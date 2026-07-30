@@ -139,12 +139,17 @@
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Rep notification email</label>
       <input id="cfgRepEmail" type="email" disabled placeholder="rep@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
-      <div class="kpi-sub" style="margin-top:4px;">Where approved-action emails (outreach draft + tracked link) are sent. Blank = sending skipped.</div>
+      <div class="kpi-sub" style="margin-top:4px;">Where rep-facing emails go &mdash; daily digest, brief released, action plan, approval and opportunity offers. A client with its own rep_email on record overrides this for its own accounts.</div>
     </div>
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Manager report email</label>
       <input id="cfgManagerEmail" type="email" disabled placeholder="manager@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
       <div class="kpi-sub" style="margin-top:4px;">Where the Friday Weekly Wins report is sent. Blank = sending skipped.</div>
+    </div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Ops &amp; failure alert email</label>
+      <input id="cfgOpsEmail" type="email" disabled placeholder="ops@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Where technical alerts go &mdash; pipeline errors, the daily heartbeat, and pg_cron failures. Kept separate from the rep email so ops noise stays out of the rep&rsquo;s inbox.</div>
     </div>
 
     <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 10px;padding-top:16px;border-top:1px solid #eef0f3;">Automation rules</div>
@@ -985,8 +990,12 @@ async function loadSettings(){
     document.getElementById('cfgWhenUrl').value=map.when_engine_url||'';
     document.getElementById('cfgRepEmail').value=map.rep_notification_email||'';
     document.getElementById('cfgManagerEmail').value=map.manager_report_email||'';
-    setSecretState('cfgSmartleadState', map.smartlead_api_key);
-    setSecretState('cfgHeyreachState', map.heyreach_api_key);
+    document.getElementById('cfgOpsEmail').value=map.ops_alert_email||'';
+    /* Secret values are no longer readable by the browser; only the set/not-set flag is. */
+    const secretRows=await fetchView('app_config_secret_status','select=key,is_set');
+    const secretSet={}; secretRows.forEach(r=>{ secretSet[r.key]=r.is_set; });
+    setSecretState('cfgSmartleadState', secretSet.smartlead_api_key);
+    setSecretState('cfgHeyreachState', secretSet.heyreach_api_key);
     document.getElementById('cfgExpiry').value=map.recommendation_expiry_days||'';
     await renderChannelChecklist(map.approval_required_channels||'');
     if(s) s.textContent='';

@@ -1,94 +1,82 @@
 {
- "name": "Email Events -> Engagement",
- "nodes": [
-  {
-   "id": "a9f70e75-9b37-4390-a627-c2f95403ddc9",
-   "name": "Email Events Webhook",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    0
-   ],
-   "webhookId": "390f113c-aac7-4102-9910-1eab8a14fab5",
-   "parameters": {
-    "path": "email-events",
-    "options": {},
-    "httpMethod": "POST"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "21b8191d-79a8-4a16-9d70-202a66cd0638",
-   "name": "Map Email Events",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    224,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst MAP = {\n  open:'email_open', opened:'email_open', open_event:'email_open', email_open:'email_open', email_opened:'email_open',\n  click:'email_click', clicked:'email_click', click_event:'email_click', link_click:'email_click', email_click:'email_click', email_clicked:'email_click', email_link_click:'email_click',\n  reply:'email_reply', replied:'email_reply', reply_event:'email_reply', email_reply:'email_reply', email_replied:'email_reply', reply_received:'email_reply', inbound_reply:'email_reply', message_reply:'email_reply'\n};\nconst toIso = (t) => {\n  if (t == null || t === '') return new Date().toISOString();\n  if (typeof t === 'number' || /^\\d+(\\.\\d+)?$/.test(String(t))) {\n    let n = Number(t);\n    if (n < 1e12) n = n * 1000;\n    const d = new Date(n);\n    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();\n  }\n  const d = new Date(t);\n  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();\n};\nconst utmFrom = (u) => {\n  if (!u) return '';\n  const m = String(u).match(/[?&]utm_campaign=([^&#]+)/i);\n  if (!m) return '';\n  try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }\n};\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const b = (j.body && typeof j.body === 'object') ? j.body : j;\n  const events = Array.isArray(b) ? b : (Array.isArray(b.events) ? b.events : (b['event-data'] ? [b['event-data']] : [b]));\n  for (const ev of events) {\n    if (!ev || typeof ev !== 'object') continue;\n    const raw = String(ev.event_type || ev.event || ev.type || ev.RecordType || ev.eventType || '').trim().toLowerCase().replace(/[\\s.-]+/g, '_');\n    const et = MAP[raw];\n    if (!et) continue;\n    const url = ev.url || ev.URL || ev.link || ev.Link || ev.OriginalLink || (ev.click && ev.click.url) || '';\n    const campaign = ev.utm_campaign || ev.campaign || (ev.tracking && ev.tracking.utm_campaign) || (ev['user-variables'] && ev['user-variables'].utm_campaign) || ev.campaign_name || utmFrom(url) || '';\n    const account = ev.account || '';\n    const contact = ev.email || ev.recipient || ev.Recipient || ev.to || ev.to_email || ev.lead_email || ev.contact || (ev.envelope && ev.envelope.to) || '';\n    const eventId = ev.event_id || ev.sg_event_id || ev.stats_id || ev.id || ev.MessageID || ev.message_id || '';\n    const occurred = toIso(ev.occurred_at || ev.timestamp || ev.ReceivedAt || ev.DeliveredAt || ev.created_at || ev.time || ev.event_timestamp || '');\n    const value = (ev.value != null && ev.value !== '') ? Number(ev.value) : 1;\n    const meta = { email_event_id: String(eventId), raw_event: String(ev.event_type || ev.event || ev.type || ev.RecordType || ev.eventType || ''), tool: String(ev.tool || ev.source || 'email') };\n    if (et === 'email_click' && url) meta.url = String(url).slice(0, 400);\n    if (et === 'email_reply' && (ev.reply_body || ev.reply_message)) meta.reply_snippet = String(ev.reply_body || ev.reply_message).slice(0, 200);\n    out.push({ json: {\n      account_esc: esc(account),\n      contact_esc: esc(contact),\n      campaign_esc: esc(campaign),\n      event_type: et,\n      event_id_esc: esc(eventId),\n      value: Number.isFinite(value) ? value : 1,\n      occurred_esc: esc(occurred),\n      metadata_esc: esc(JSON.stringify(meta))\n    } });\n  }\n}\nreturn out;"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "4b4b5e05-8f8e-41ea-a80a-41c489a559a2",
-   "name": "Insert Email Event",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    448,
-    0
-   ],
-   "parameters": {
-    "query": "=INSERT INTO engagement_events (account, contact, source, event_type, campaign, value, occurred_at, metadata) SELECT COALESCE((SELECT a.account FROM actions a WHERE a.utm_campaign = '{{ $json.campaign_esc }}' AND '{{ $json.campaign_esc }}' <> '' LIMIT 1), NULLIF('{{ $json.account_esc }}',''), 'unknown'), NULLIF('{{ $json.contact_esc }}',''), 'email', '{{ $json.event_type }}', NULLIF('{{ $json.campaign_esc }}',''), {{ $json.value }}, '{{ $json.occurred_esc }}'::timestamptz, '{{ $json.metadata_esc }}'::jsonb WHERE NOT EXISTS (SELECT 1 FROM engagement_events e WHERE e.source = 'email' AND ((NULLIF('{{ $json.event_id_esc }}','') IS NOT NULL AND e.metadata->>'email_event_id' = '{{ $json.event_id_esc }}') OR (NULLIF('{{ $json.event_id_esc }}','') IS NULL AND e.event_type = '{{ $json.event_type }}' AND COALESCE(e.campaign,'') = '{{ $json.campaign_esc }}' AND COALESCE(e.contact,'') = '{{ $json.contact_esc }}' AND e.occurred_at = '{{ $json.occurred_esc }}'::timestamptz))) ON CONFLICT DO NOTHING;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+  "name": "Email Events -> Engagement",
+  "nodes": [
+    {
+      "id": "a9f70e75-9b37-4390-a627-c2f95403ddc9",
+      "name": "Email Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "email-events",
+        "options": {}
+      },
+      "webhookId": "390f113c-aac7-4102-9910-1eab8a14fab5"
+    },
+    {
+      "id": "21b8191d-79a8-4a16-9d70-202a66cd0638",
+      "name": "Map Email Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst MAP = {\n  open:'email_open', opened:'email_open', open_event:'email_open', email_open:'email_open', email_opened:'email_open',\n  click:'email_click', clicked:'email_click', click_event:'email_click', link_click:'email_click', email_click:'email_click', email_clicked:'email_click', email_link_click:'email_click',\n  reply:'email_reply', replied:'email_reply', reply_event:'email_reply', email_reply:'email_reply', email_replied:'email_reply', reply_received:'email_reply', inbound_reply:'email_reply', message_reply:'email_reply'\n};\nconst toIso = (t) => {\n  if (t == null || t === '') return new Date().toISOString();\n  if (typeof t === 'number' || /^\\d+(\\.\\d+)?$/.test(String(t))) {\n    let n = Number(t);\n    if (n < 1e12) n = n * 1000;\n    const d = new Date(n);\n    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();\n  }\n  const d = new Date(t);\n  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();\n};\nconst utmFrom = (u) => {\n  if (!u) return '';\n  const m = String(u).match(/[?&]utm_campaign=([^&#]+)/i);\n  if (!m) return '';\n  try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }\n};\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const b = (j.body && typeof j.body === 'object') ? j.body : j;\n  const events = Array.isArray(b) ? b : (Array.isArray(b.events) ? b.events : (b['event-data'] ? [b['event-data']] : [b]));\n  for (const ev of events) {\n    if (!ev || typeof ev !== 'object') continue;\n    const raw = String(ev.event_type || ev.event || ev.type || ev.RecordType || ev.eventType || '').trim().toLowerCase().replace(/[\\s.-]+/g, '_');\n    const et = MAP[raw];\n    if (!et) continue;\n    const url = ev.url || ev.URL || ev.link || ev.Link || ev.OriginalLink || (ev.click && ev.click.url) || '';\n    const campaign = ev.utm_campaign || ev.campaign || (ev.tracking && ev.tracking.utm_campaign) || (ev['user-variables'] && ev['user-variables'].utm_campaign) || ev.campaign_name || utmFrom(url) || '';\n    const account = ev.account || '';\n    const contact = ev.email || ev.recipient || ev.Recipient || ev.to || ev.to_email || ev.lead_email || ev.contact || (ev.envelope && ev.envelope.to) || '';\n    const eventId = ev.event_id || ev.sg_event_id || ev.stats_id || ev.id || ev.MessageID || ev.message_id || '';\n    const occurred = toIso(ev.occurred_at || ev.timestamp || ev.ReceivedAt || ev.DeliveredAt || ev.created_at || ev.time || ev.event_timestamp || '');\n    const value = (ev.value != null && ev.value !== '') ? Number(ev.value) : 1;\n    const meta = { email_event_id: String(eventId), raw_event: String(ev.event_type || ev.event || ev.type || ev.RecordType || ev.eventType || ''), tool: String(ev.tool || ev.source || 'email') };\n    if (et === 'email_click' && url) meta.url = String(url).slice(0, 400);\n    if (et === 'email_reply' && (ev.reply_body || ev.reply_message)) meta.reply_snippet = String(ev.reply_body || ev.reply_message).slice(0, 200);\n    out.push({ json: {\n      account_esc: esc(account),\n      contact_esc: esc(contact),\n      campaign_esc: esc(campaign),\n      event_type: et,\n      event_id_esc: esc(eventId),\n      value: Number.isFinite(value) ? value : 1,\n      occurred_esc: esc(occurred),\n      metadata_esc: esc(JSON.stringify(meta))\n    } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "4b4b5e05-8f8e-41ea-a80a-41c489a559a2",
+      "name": "Insert Email Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO engagement_events (account, contact, source, event_type, campaign, value, occurred_at, metadata) SELECT COALESCE((SELECT a.account FROM actions a WHERE a.utm_campaign = '{{ $json.campaign_esc }}' AND '{{ $json.campaign_esc }}' <> '' LIMIT 1), NULLIF('{{ $json.account_esc }}',''), 'unknown'), NULLIF('{{ $json.contact_esc }}',''), 'email', '{{ $json.event_type }}', NULLIF('{{ $json.campaign_esc }}',''), {{ $json.value }}, '{{ $json.occurred_esc }}'::timestamptz, '{{ $json.metadata_esc }}'::jsonb WHERE NOT EXISTS (SELECT 1 FROM engagement_events e WHERE e.source = 'email' AND ((NULLIF('{{ $json.event_id_esc }}','') IS NOT NULL AND e.metadata->>'email_event_id' = '{{ $json.event_id_esc }}') OR (NULLIF('{{ $json.event_id_esc }}','') IS NULL AND e.event_type = '{{ $json.event_type }}' AND COALESCE(e.campaign,'') = '{{ $json.campaign_esc }}' AND COALESCE(e.contact,'') = '{{ $json.contact_esc }}' AND e.occurred_at = '{{ $json.occurred_esc }}'::timestamptz))) ON CONFLICT DO NOTHING;",
+        "options": {}
+      }
     }
-   },
-   "typeVersion": 2.6
-  }
- ],
- "connections": {
-  "Map Email Events": {
-   "main": [
-    [
-     {
-      "node": "Insert Email Event",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+  ],
+  "connections": {
+    "Email Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Map Email Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Email Events": {
+      "main": [
+        [
+          {
+            "node": "Insert Email Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "Email Events Webhook": {
-   "main": [
-    [
-     {
-      "node": "Map Email Events",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "hAQ1e1DpFkgUBjwc",
-  "activeAtExport": true
- }
 }

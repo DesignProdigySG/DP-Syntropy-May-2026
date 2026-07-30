@@ -1,165 +1,141 @@
 {
- "name": "Pre-Meeting Prep",
- "nodes": [
-  {
-   "id": "ae9e0acf-5d60-41c4-a91c-9a3171870048",
-   "name": "Every 15 min",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    0,
-    0
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "minutes",
-       "minutesInterval": 15
+  "name": "Pre-Meeting Prep",
+  "nodes": [
+    {
+      "id": "ae9e0acf-5d60-41c4-a91c-9a3171870048",
+      "name": "Every 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
       }
-     ]
+    },
+    {
+      "id": "ae0c0c97-dc6c-4077-80f0-67c44cb5c07f",
+      "name": "Find Upcoming Meetings",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT e.id, e.account, e.contact, e.campaign, e.occurred_at,\n       coalesce(nullif((SELECT c.rep_email FROM clients c WHERE c.id = e.client_id), ''), (SELECT value FROM app_config WHERE key='rep_notification_email')) AS rep_email,\n       (SELECT p.raw_payload FROM pipeline_runs p WHERE p.company = e.account ORDER BY p.id DESC LIMIT 1) AS raw_payload,\n       (SELECT json_agg(json_build_object('type', a.action_type, 'status', a.status, 'executed_at', a.executed_at) ORDER BY a.id) FROM actions a WHERE a.account = e.account) AS touches,\n       (SELECT json_agg(json_build_object('event', ev.event_type, 'at', ev.occurred_at) ORDER BY ev.id DESC) FROM (SELECT * FROM engagement_events x WHERE x.account = e.account AND x.id <> e.id ORDER BY x.id DESC LIMIT 6) ev) AS recent_engagement,\n       (SELECT o.objective_label FROM campaign_objectives o JOIN campaigns cam ON cam.id = o.campaign_id WHERE cam.account = e.account ORDER BY o.id DESC LIMIT 1) AS objective\nFROM engagement_events e\nWHERE e.event_type = 'meeting_booked'\n  AND e.occurred_at BETWEEN now() - interval '10 minutes' AND now() + interval '45 minutes'\n  AND coalesce(e.metadata->>'prepped', '') = '';",
+        "options": {}
+      }
+    },
+    {
+      "id": "66a67f73-855a-4d22-b789-fdb086f146fd",
+      "name": "Build Prep Sheet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map(i => {\n  const j = i.json;\n  if (!j.rep_email) return null;\n  let brief = j.raw_payload;\n  if (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\n  const signals = (brief && Array.isArray(brief.signals)) ? brief.signals.slice(0, 4).map(s => `• [${s.date || '—'}] ${s.description || ''}`).join('\\n') : '(no signals on file)';\n  const posture = (brief && brief.posture && brief.posture.headline) || '';\n  const move = (brief && brief.element_4 && brief.element_4.the_move) || '';\n  const catch_ = (brief && brief.element_4 && brief.element_4.the_catch) || '';\n  const bg = (brief && Array.isArray(brief.buying_group)) ? brief.buying_group.map(b => `• ${b.name || '?'} — ${b.title || b.focus_area || ''}`).join('\\n') : '';\n  let touches = j.touches; if (typeof touches === 'string') { try { touches = JSON.parse(touches); } catch (e) { touches = []; } }\n  const touchLine = Array.isArray(touches) && touches.length ? touches.map(t => `${t.type} (${t.status})`).join(', ') : 'none yet';\n  let eng = j.recent_engagement; if (typeof eng === 'string') { try { eng = JSON.parse(eng); } catch (e) { eng = []; } }\n  const engLines = Array.isArray(eng) && eng.length ? eng.map(x => `• ${x.event} — ${String(x.at).slice(0, 16)}`).join('\\n') : '(none recorded)';\n  const when = new Date(j.occurred_at);\n  const body = `Meeting prep — ${j.account}\\nWith: ${j.contact || 'unknown contact'}\\nWhen: ${when.toISOString().replace('T', ' ').slice(0, 16)} UTC\\nObjective: ${j.objective || 'not set'}\\n\\nPosture: ${posture || '—'}\\nThe move: ${move || '—'}\\nThe catch: ${catch_ || '—'}\\n\\nRecent signals:\\n${signals}\\n\\nBuying group:\\n${bg || '(unknown)'}\\n\\nWhat we've sent them: ${touchLine}\\n\\nTheir recent engagement:\\n${engLines}\\n\\nGood luck — log the outcome after the call via your digest links or quick-log.`;\n  return { json: { event_id: j.id, rep_email: j.rep_email, subject: `Meeting in <45 min: ${j.account}${j.contact ? ' (' + j.contact + ')' : ''} — prep sheet`, body } };\n}).filter(Boolean);"
+      }
+    },
+    {
+      "id": "84d3945a-fc6e-4b30-90a5-2f398f5c7a99",
+      "name": "Send Prep Sheet",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.rep_email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "webhookId": "80193d4f-3ca0-4490-b135-5a6583c66eed"
+    },
+    {
+      "id": "502ee13a-4add-4465-a44d-088c59e23667",
+      "name": "Mark Prepped",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE engagement_events SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('prepped', true, 'prepped_at', now()::text) WHERE id = {{ $('Build Prep Sheet').item.json.event_id }} RETURNING id;",
+        "options": {}
+      }
     }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "ae0c0c97-dc6c-4077-80f0-67c44cb5c07f",
-   "name": "Find Upcoming Meetings",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    0
-   ],
-   "parameters": {
-    "query": "SELECT e.id, e.account, e.contact, e.campaign, e.occurred_at,\n       coalesce(nullif((SELECT c.rep_email FROM clients c WHERE c.id = e.client_id), ''), (SELECT value FROM app_config WHERE key='rep_notification_email')) AS rep_email,\n       (SELECT p.raw_payload FROM pipeline_runs p WHERE p.company = e.account ORDER BY p.id DESC LIMIT 1) AS raw_payload,\n       (SELECT json_agg(json_build_object('type', a.action_type, 'status', a.status, 'executed_at', a.executed_at) ORDER BY a.id) FROM actions a WHERE a.account = e.account) AS touches,\n       (SELECT json_agg(json_build_object('event', ev.event_type, 'at', ev.occurred_at) ORDER BY ev.id DESC) FROM (SELECT * FROM engagement_events x WHERE x.account = e.account AND x.id <> e.id ORDER BY x.id DESC LIMIT 6) ev) AS recent_engagement,\n       (SELECT o.objective_label FROM campaign_objectives o JOIN campaigns cam ON cam.id = o.campaign_id WHERE cam.account = e.account ORDER BY o.id DESC LIMIT 1) AS objective\nFROM engagement_events e\nWHERE e.event_type = 'meeting_booked'\n  AND e.occurred_at BETWEEN now() - interval '10 minutes' AND now() + interval '45 minutes'\n  AND coalesce(e.metadata->>'prepped', '') = '';",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+  ],
+  "connections": {
+    "Every 15 min": {
+      "main": [
+        [
+          {
+            "node": "Find Upcoming Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Upcoming Meetings": {
+      "main": [
+        [
+          {
+            "node": "Build Prep Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prep Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send Prep Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Prep Sheet": {
+      "main": [
+        [
+          {
+            "node": "Mark Prepped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "typeVersion": 2.6
   },
-  {
-   "id": "66a67f73-855a-4d22-b789-fdb086f146fd",
-   "name": "Build Prep Sheet",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    448,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "return $input.all().map(i => {\n  const j = i.json;\n  if (!j.rep_email) return null;\n  let brief = j.raw_payload;\n  if (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\n  const signals = (brief && Array.isArray(brief.signals)) ? brief.signals.slice(0, 4).map(s => `• [${s.date || '—'}] ${s.description || ''}`).join('\\n') : '(no signals on file)';\n  const posture = (brief && brief.posture && brief.posture.headline) || '';\n  const move = (brief && brief.element_4 && brief.element_4.the_move) || '';\n  const catch_ = (brief && brief.element_4 && brief.element_4.the_catch) || '';\n  const bg = (brief && Array.isArray(brief.buying_group)) ? brief.buying_group.map(b => `• ${b.name || '?'} — ${b.title || b.focus_area || ''}`).join('\\n') : '';\n  let touches = j.touches; if (typeof touches === 'string') { try { touches = JSON.parse(touches); } catch (e) { touches = []; } }\n  const touchLine = Array.isArray(touches) && touches.length ? touches.map(t => `${t.type} (${t.status})`).join(', ') : 'none yet';\n  let eng = j.recent_engagement; if (typeof eng === 'string') { try { eng = JSON.parse(eng); } catch (e) { eng = []; } }\n  const engLines = Array.isArray(eng) && eng.length ? eng.map(x => `• ${x.event} — ${String(x.at).slice(0, 16)}`).join('\\n') : '(none recorded)';\n  const when = new Date(j.occurred_at);\n  const body = `Meeting prep — ${j.account}\\nWith: ${j.contact || 'unknown contact'}\\nWhen: ${when.toISOString().replace('T', ' ').slice(0, 16)} UTC\\nObjective: ${j.objective || 'not set'}\\n\\nPosture: ${posture || '—'}\\nThe move: ${move || '—'}\\nThe catch: ${catch_ || '—'}\\n\\nRecent signals:\\n${signals}\\n\\nBuying group:\\n${bg || '(unknown)'}\\n\\nWhat we've sent them: ${touchLine}\\n\\nTheir recent engagement:\\n${engLines}\\n\\nGood luck — log the outcome after the call via your digest links or quick-log.`;\n  return { json: { event_id: j.id, rep_email: j.rep_email, subject: `Meeting in <45 min: ${j.account}${j.contact ? ' (' + j.contact + ')' : ''} — prep sheet`, body } };\n}).filter(Boolean);"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "84d3945a-fc6e-4b30-90a5-2f398f5c7a99",
-   "name": "Send Prep Sheet",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    672,
-    0
-   ],
-   "webhookId": "80193d4f-3ca0-4490-b135-5a6583c66eed",
-   "parameters": {
-    "sendTo": "={{ $json.rep_email }}",
-    "message": "={{ $json.body }}",
-    "options": {},
-    "subject": "={{ $json.subject }}",
-    "resource": "message",
-    "emailType": "text",
-    "operation": "send"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "502ee13a-4add-4465-a44d-088c59e23667",
-   "name": "Mark Prepped",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    896,
-    0
-   ],
-   "parameters": {
-    "query": "UPDATE engagement_events SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('prepped', true, 'prepped_at', now()::text) WHERE id = {{ $('Build Prep Sheet').item.json.event_id }} RETURNING id;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "executionTimeout": 300
   }
- ],
- "connections": {
-  "Every 15 min": {
-   "main": [
-    [
-     {
-      "node": "Find Upcoming Meetings",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Send Prep Sheet": {
-   "main": [
-    [
-     {
-      "node": "Mark Prepped",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Prep Sheet": {
-   "main": [
-    [
-     {
-      "node": "Send Prep Sheet",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Find Upcoming Meetings": {
-   "main": [
-    [
-     {
-      "node": "Build Prep Sheet",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "availableInMCP": true,
-  "executionOrder": "v1",
-  "executionTimeout": 300
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "LBJutargTXG3qsIN",
-  "activeAtExport": true
- }
 }

@@ -1,291 +1,265 @@
 {
- "name": "Adaptive Decision Engine",
- "nodes": [
-  {
-   "id": "c42a39df-2148-42cd-ba2b-b623e6cff4fa",
-   "name": "Daily Adaptive Check",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    240,
-    304
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "triggerAtHour": 6,
-       "triggerAtMinute": 15
+  "name": "Adaptive Decision Engine",
+  "nodes": [
+    {
+      "id": "c42a39df-2148-42cd-ba2b-b623e6cff4fa",
+      "name": "Daily Adaptive Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 6,
+              "triggerAtMinute": 15
+            }
+          ]
+        }
       }
-     ]
-    }
-   },
-   "typeVersion": 1.2
-  },
-  {
-   "id": "52bc28ca-e406-4814-99ae-5739218f5396",
-   "name": "Get Recently Measured Steps",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    464,
-    304
-   ],
-   "parameters": {
-    "query": "select cs.id as step_id, cs.campaign_id, cs.step_number, cs.action_type as step_action_type, cs.utm_campaign, o.result, o.action_id, c.account, c.salesforce_campaign_id from outcomes o join cadence_steps cs on cs.action_id = o.action_id join campaigns c on c.id = cs.campaign_id where o.measured_at >= now() - interval '1 day' and c.status = 'active' and cs.adaptive_action is null;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.5
-  },
-  {
-   "id": "f8e65cdf-1b5c-4f15-9f60-fa23e801da0a",
-   "name": "Get Campaign Signal",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    912,
-    224
-   ],
-   "parameters": {
-    "query": "select count(*) filter (where status in ('pending','recommended')) as remaining_steps, (select id from cadence_steps where campaign_id = $1 and status = 'pending' order by step_number asc limit 1) as next_step_id, (select action_type from cadence_steps where campaign_id = $1 and status = 'pending' order by step_number asc limit 1) as next_step_action_type, (select count(*) from cadence_steps where campaign_id = $1 and action_type in ('phone','linkedin_connect','invite','partner') and status in ('executed','measured')) as high_touch_used, (select count(*) from engagement_events where campaign = $2) as total_engagement from cadence_steps where campaign_id = $1;",
-    "options": {
-     "queryReplacement": "={{ [$json.campaign_id, $json.utm_campaign] }}"
     },
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.5
-  },
-  {
-   "id": "700afb7f-de52-4471-804f-c0ef5687930b",
-   "name": "Decide Adaptive Action",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1120,
-    224
-   ],
-   "parameters": {
-    "jsCode": "const original = $('Get Recently Measured Steps').item.json;\nconst signal = $input.item.json;\nconst LOW_TOUCH = ['email','content_download','landing_page','ads','webinar','linkedin_engage'];\nconst campaignId = original.campaign_id;\nconst stepId = original.step_id;\nconst salesforceCampaignId = original.salesforce_campaign_id || null;\nconst esc = (s) => String(s).replace(/'/g, \"''\");\nlet decision = 'reviewed';\nlet reason = 'No adaptive action needed.';\nlet sql = '';\nlet completionReason = null;\nif (original.result === 'met') {\n  decision = 'stopped';\n  completionReason = 'goal_met';\n  reason = 'Campaign goal met on step ' + original.step_number + ' (' + original.step_action_type + ') — remaining cadence steps cancelled.';\n  sql = \"update cadence_steps set adaptive_action='stopped', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\\n\" +\n        \"update cadence_steps set status='cancelled' where campaign_id=\" + campaignId + \" and status in ('pending','recommended') and id<>\" + stepId + \";\\n\" +\n        \"update campaigns set status='completed', completion_reason='\" + esc(completionReason) + \"' where id=\" + campaignId + \";\";\n} else if (Number(signal.total_engagement) === 0 && signal.next_step_id) {\n  decision = 'paused';\n  reason = 'No engagement detected after step ' + original.step_number + ' (' + original.step_action_type + ') — next step pushed out 7 days.';\n  sql = \"update cadence_steps set adaptive_action='paused', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\\n\" +\n        \"update cadence_steps set scheduled_for = scheduled_for + interval '7 days' where id=\" + signal.next_step_id + \";\";\n} else if (Number(signal.total_engagement) > 0 && signal.next_step_id && LOW_TOUCH.includes(signal.next_step_action_type)) {\n  const target = Number(signal.high_touch_used) === 0 ? 'linkedin_connect' : 'phone';\n  decision = 'escalated';\n  reason = 'Engagement seen but no conversion after step ' + original.step_number + ' (' + original.step_action_type + ') — next step escalated from ' + signal.next_step_action_type + ' to ' + target + '.';\n  sql = \"update cadence_steps set adaptive_action='escalated', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\\n\" +\n        \"update cadence_steps set action_type='\" + target + \"' where id=\" + signal.next_step_id + \";\";\n} else {\n  sql = \"update cadence_steps set adaptive_action='reviewed', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\";\n}\n// Item 3 fix: Salesforce Campaign Status write-back. Only a 'stopped' decision changes the\n// campaign's own lifecycle (campaigns.status -> 'completed'); 'paused'/'escalated'/'reviewed'\n// only touch individual cadence_steps and the campaign stays 'active' (Salesforce stays\n// 'In Progress', no write needed). Auto-map: goal_met -> Completed, any other stop/terminal\n// reason -> Aborted.\nconst salesforce_status = decision === 'stopped'\n  ? (completionReason === 'goal_met' ? 'Completed' : 'Aborted')\n  : null;\nreturn [{ json: { decision: decision, sql: sql, step_id: stepId, campaign_id: campaignId, reason: reason, salesforce_campaign_id: salesforceCampaignId, salesforce_status: salesforce_status } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "5173bc3c-5810-49ea-a0f4-c591070468d0",
-   "name": "Apply Adaptive Decision",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1360,
-    288
-   ],
-   "parameters": {
-    "query": "{{ $json.sql }}",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.5
-  },
-  {
-   "id": "ee6b1009-0e28-4042-922a-ab4733351f7e",
-   "name": "Loop Measured Steps",
-   "type": "n8n-nodes-base.splitInBatches",
-   "position": [
-    688,
-    304
-   ],
-   "parameters": {
-    "options": {}
-   },
-   "typeVersion": 3
-  },
-  {
-   "id": "c9502f89-f176-4bd7-98cb-8c305db03800",
-   "name": "Has Salesforce Campaign?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    1328,
-    64
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "sf1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.salesforce_status }}",
-       "rightValue": ""
-      },
-      {
-       "id": "sf2",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.salesforce_campaign_id }}",
-       "rightValue": ""
+    {
+      "id": "52bc28ca-e406-4814-99ae-5739218f5396",
+      "name": "Get Recently Measured Steps",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select cs.id as step_id, cs.campaign_id, cs.step_number, cs.action_type as step_action_type, cs.utm_campaign, o.result, o.action_id, c.account, c.salesforce_campaign_id from outcomes o join cadence_steps cs on cs.action_id = o.action_id join campaigns c on c.id = cs.campaign_id where o.measured_at >= now() - interval '1 day' and c.status = 'active' and cs.adaptive_action is null;",
+        "options": {}
       }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "edae3c3d-648b-44bd-ba8a-4756477c7953",
-   "name": "Update Salesforce Campaign Status",
-   "type": "n8n-nodes-base.salesforce",
-   "position": [
-    1568,
-    48
-   ],
-   "parameters": {
-    "recordId": "={{ $json.salesforce_campaign_id }}",
-    "resource": "customObject",
-    "operation": "update",
-    "customObject": "Campaign",
-    "updateFields": {},
-    "customFieldsUi": {
-     "customFieldsValues": [
-      {
-       "value": "={{ $json.salesforce_status }}",
-       "fieldId": "Status"
+    },
+    {
+      "id": "f8e65cdf-1b5c-4f15-9f60-fa23e801da0a",
+      "name": "Get Campaign Signal",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        900,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select count(*) filter (where status in ('pending','recommended')) as remaining_steps, (select id from cadence_steps where campaign_id = $1 and status = 'pending' order by step_number asc limit 1) as next_step_id, (select action_type from cadence_steps where campaign_id = $1 and status = 'pending' order by step_number asc limit 1) as next_step_action_type, (select count(*) from cadence_steps where campaign_id = $1 and action_type in ('phone','linkedin_connect','invite','partner') and status in ('executed','measured')) as high_touch_used, (select count(*) from engagement_events where campaign = $2) as total_engagement from cadence_steps where campaign_id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.campaign_id, $json.utm_campaign] }}"
+        }
       }
-     ]
+    },
+    {
+      "id": "700afb7f-de52-4471-804f-c0ef5687930b",
+      "name": "Decide Adaptive Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const original = $('Get Recently Measured Steps').item.json;\nconst signal = $input.item.json;\nconst LOW_TOUCH = ['email','content_download','landing_page','ads','webinar','linkedin_engage'];\nconst campaignId = original.campaign_id;\nconst stepId = original.step_id;\nconst salesforceCampaignId = original.salesforce_campaign_id || null;\nconst esc = (s) => String(s).replace(/'/g, \"''\");\nlet decision = 'reviewed';\nlet reason = 'No adaptive action needed.';\nlet sql = '';\nlet completionReason = null;\nif (original.result === 'met') {\n  decision = 'stopped';\n  completionReason = 'goal_met';\n  reason = 'Campaign goal met on step ' + original.step_number + ' (' + original.step_action_type + ') — remaining cadence steps cancelled.';\n  sql = \"update cadence_steps set adaptive_action='stopped', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\\n\" +\n        \"update cadence_steps set status='cancelled' where campaign_id=\" + campaignId + \" and status in ('pending','recommended') and id<>\" + stepId + \";\\n\" +\n        \"update campaigns set status='completed', completion_reason='\" + esc(completionReason) + \"' where id=\" + campaignId + \";\";\n} else if (Number(signal.total_engagement) === 0 && signal.next_step_id) {\n  decision = 'paused';\n  reason = 'No engagement detected after step ' + original.step_number + ' (' + original.step_action_type + ') — next step pushed out 7 days.';\n  sql = \"update cadence_steps set adaptive_action='paused', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\\n\" +\n        \"update cadence_steps set scheduled_for = scheduled_for + interval '7 days' where id=\" + signal.next_step_id + \";\";\n} else if (Number(signal.total_engagement) > 0 && signal.next_step_id && LOW_TOUCH.includes(signal.next_step_action_type)) {\n  const target = Number(signal.high_touch_used) === 0 ? 'linkedin_connect' : 'phone';\n  decision = 'escalated';\n  reason = 'Engagement seen but no conversion after step ' + original.step_number + ' (' + original.step_action_type + ') — next step escalated from ' + signal.next_step_action_type + ' to ' + target + '.';\n  sql = \"update cadence_steps set adaptive_action='escalated', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\\n\" +\n        \"update cadence_steps set action_type='\" + target + \"' where id=\" + signal.next_step_id + \";\";\n} else {\n  sql = \"update cadence_steps set adaptive_action='reviewed', adaptive_reason='\" + esc(reason) + \"' where id=\" + stepId + \";\";\n}\n// Item 3 fix: Salesforce Campaign Status write-back. Only a 'stopped' decision changes the\n// campaign's own lifecycle (campaigns.status -> 'completed'); 'paused'/'escalated'/'reviewed'\n// only touch individual cadence_steps and the campaign stays 'active' (Salesforce stays\n// 'In Progress', no write needed). Auto-map: goal_met -> Completed, any other stop/terminal\n// reason -> Aborted.\nconst salesforce_status = decision === 'stopped'\n  ? (completionReason === 'goal_met' ? 'Completed' : 'Aborted')\n  : null;\nreturn [{ json: { decision: decision, sql: sql, step_id: stepId, campaign_id: campaignId, reason: reason, salesforce_campaign_id: salesforceCampaignId, salesforce_status: salesforce_status } }];"
+      }
+    },
+    {
+      "id": "5173bc3c-5810-49ea-a0f4-c591070468d0",
+      "name": "Apply Adaptive Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1340,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "ee6b1009-0e28-4042-922a-ab4733351f7e",
+      "name": "Loop Measured Steps",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "c9502f89-f176-4bd7-98cb-8c305db03800",
+      "name": "Has Salesforce Campaign?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1340,
+        380
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "sf1",
+              "leftValue": "={{ $json.salesforce_status }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "sf2",
+              "leftValue": "={{ $json.salesforce_campaign_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "edae3c3d-648b-44bd-ba8a-4756477c7953",
+      "name": "Update Salesforce Campaign Status",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        340
+      ],
+      "parameters": {
+        "resource": "customObject",
+        "operation": "update",
+        "customObject": "Campaign",
+        "recordId": "={{ $json.salesforce_campaign_id }}",
+        "customFieldsUi": {
+          "customFieldsValues": [
+            {
+              "fieldId": "Status",
+              "value": "={{ $json.salesforce_status }}"
+            }
+          ]
+        },
+        "additionalFields": {}
+      }
     }
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
+  ],
+  "connections": {
+    "Daily Adaptive Check": {
+      "main": [
+        [
+          {
+            "node": "Get Recently Measured Steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recently Measured Steps": {
+      "main": [
+        [
+          {
+            "node": "Loop Measured Steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Campaign Signal": {
+      "main": [
+        [
+          {
+            "node": "Decide Adaptive Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Adaptive Action": {
+      "main": [
+        [
+          {
+            "node": "Apply Adaptive Decision",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Has Salesforce Campaign?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Measured Steps": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Campaign Signal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Salesforce Campaign?": {
+      "main": [
+        [
+          {
+            "node": "Update Salesforce Campaign Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Apply Adaptive Decision": {
+      "main": [
+        [
+          {
+            "node": "Loop Measured Steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "typeVersion": 1.1
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Get Campaign Signal": {
-   "main": [
-    [
-     {
-      "node": "Decide Adaptive Action",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Loop Measured Steps": {
-   "main": [
-    [],
-    [
-     {
-      "node": "Get Campaign Signal",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Daily Adaptive Check": {
-   "main": [
-    [
-     {
-      "node": "Get Recently Measured Steps",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Decide Adaptive Action": {
-   "main": [
-    [
-     {
-      "node": "Apply Adaptive Decision",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Has Salesforce Campaign?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Apply Adaptive Decision": {
-   "main": [
-    [
-     {
-      "node": "Loop Measured Steps",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Has Salesforce Campaign?": {
-   "main": [
-    [
-     {
-      "node": "Update Salesforce Campaign Status",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    []
-   ]
-  },
-  "Get Recently Measured Steps": {
-   "main": [
-    [
-     {
-      "node": "Loop Measured Steps",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "tGYW1gMBXQrC3bQ6",
-  "activeAtExport": true
- }
 }

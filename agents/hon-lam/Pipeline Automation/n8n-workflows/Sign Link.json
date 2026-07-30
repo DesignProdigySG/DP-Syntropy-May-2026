@@ -1,213 +1,203 @@
 {
- "name": "Sign Link",
- "nodes": [
-  {
-   "id": "17046aca-cd3f-4908-a4aa-2e7bed1015aa",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    640,
-    128
-   ],
-   "parameters": {
-    "query": "select value from app_config where key='approval_hmac_secret';",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "10fbc03f-713e-4aab-bcdf-e3b473958ffe",
-   "name": "Valid?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    448,
-    288
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 1,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "operator": {
-        "type": "boolean",
-        "operation": "true"
-       },
-       "leftValue": "={{ $json.valid }}",
-       "rightValue": true
+  "name": "Sign Link",
+  "nodes": [
+    {
+      "id": "17046aca-cd3f-4908-a4aa-2e7bed1015aa",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        288
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select value from app_config where key='approval_hmac_secret';",
+        "options": {}
       }
-     ]
+    },
+    {
+      "id": "10fbc03f-713e-4aab-bcdf-e3b473958ffe",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        288
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": true
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "93292a76-3a3a-4e6d-bd63-107009ad63c3",
+      "name": "Respond Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { sigs: $json.sigs } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "d99b8855-f5a6-44da-93b5-bdab062a6452",
+      "name": "Respond Invalid Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        192
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\":\"invalid scope, id, or action\"}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    },
+    {
+      "id": "e37982ef-d214-4094-b3d7-f3f48f8d4cb0",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        288
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const body = ($('Webhook (sign link)').first().json.body) || {};\n// Batch mode: {items:[{scope,id,action},...]} — the dashboards send one request per tab load.\n// Single mode: {scope,id,action} still accepted for backwards compatibility.\nconst raw = Array.isArray(body.items) ? body.items : [{ scope: body.scope, id: body.id, action: body.action }];\nconst items = [];\nfor (const it of raw.slice(0, 500)) {\n  const scope = it && it.scope;\n  const id = it && it.id;\n  const action = it && it.action;\n  const ok = ['brief','action','opportunity'].includes(scope)\n    && (typeof id === 'string' || typeof id === 'number') && /^[0-9]+$/.test(String(id))\n    && (action === 'approve' || action === 'reject');\n  if (ok) items.push({ scope, id: String(id), action });\n}\nreturn [{ json: { valid: items.length > 0, items } }];"
+      }
+    },
+    {
+      "id": "4e18e44f-95ad-43e8-86fb-64fe2066b8d9",
+      "name": "Build HMAC Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $json.value;\nconst v = $('Validate Request').first().json;\nconst sigs = v.items.map(it => ({ scope: it.scope, id: it.id, action: it.action, sig: crypto.createHmac('sha256', SECRET).update(`${it.scope}:${it.id}:${it.action}`).digest('hex').slice(0, 32) }));\nreturn [{ json: { sigs } }];"
+      }
+    },
+    {
+      "id": "1f131593-b03e-48f8-83cf-543fcbddde5d",
+      "name": "Webhook (sign link)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        96
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sign-link",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "webhookId": "09d91f76-09b1-40b7-829d-81cc3084eb50"
     }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "93292a76-3a3a-4e6d-bd63-107009ad63c3",
-   "name": "Respond Signature",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    1120,
-    192
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "json",
-    "responseBody": "={{ { sigs: $json.sigs } }}"
-   },
-   "typeVersion": 1.5
-  },
-  {
-   "id": "d99b8855-f5a6-44da-93b5-bdab062a6452",
-   "name": "Respond Invalid Request",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    896,
-    192
-   ],
-   "parameters": {
-    "options": {
-     "responseCode": 400
+  ],
+  "connections": {
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "respondWith": "json",
-    "responseBody": "{\"error\":\"invalid scope, id, or action\"}"
-   },
-   "typeVersion": 1.5
-  },
-  {
-   "id": "e37982ef-d214-4094-b3d7-f3f48f8d4cb0",
-   "name": "Validate Request",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    224,
-    288
-   ],
-   "parameters": {
-    "jsCode": "const body = ($('Webhook (sign link)').first().json.body) || {};\n// Batch mode: {items:[{scope,id,action},...]} — the dashboards send one request per tab load.\n// Single mode: {scope,id,action} still accepted for backwards compatibility.\nconst raw = Array.isArray(body.items) ? body.items : [{ scope: body.scope, id: body.id, action: body.action }];\nconst items = [];\nfor (const it of raw.slice(0, 500)) {\n  const scope = it && it.scope;\n  const id = it && it.id;\n  const action = it && it.action;\n  const ok = ['brief','action','opportunity'].includes(scope)\n    && (typeof id === 'string' || typeof id === 'number') && /^[0-9]+$/.test(String(id))\n    && (action === 'approve' || action === 'reject');\n  if (ok) items.push({ scope, id: String(id), action });\n}\nreturn [{ json: { valid: items.length > 0, items } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "4e18e44f-95ad-43e8-86fb-64fe2066b8d9",
-   "name": "Build HMAC Signature",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    896,
-    192
-   ],
-   "parameters": {
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $json.value;\nconst v = $('Validate Request').first().json;\nconst sigs = v.items.map(it => ({ scope: it.scope, id: it.id, action: it.action, sig: crypto.createHmac('sha256', SECRET).update(`${it.scope}:${it.id}:${it.action}`).digest('hex').slice(0, 32) }));\nreturn [{ json: { sigs } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "1f131593-b03e-48f8-83cf-543fcbddde5d",
-   "name": "Webhook (sign link)",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    96
-   ],
-   "webhookId": "09d91f76-09b1-40b7-829d-81cc3084eb50",
-   "parameters": {
-    "path": "sign-link",
-    "options": {
-     "allowedOrigins": "*"
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "httpMethod": "POST",
-    "responseMode": "responseNode"
-   },
-   "typeVersion": 2.1
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Build HMAC Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HMAC Signature": {
+      "main": [
+        [
+          {
+            "node": "Respond Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (sign link)": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Valid?": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Invalid Request",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Build HMAC Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Validate Request": {
-   "main": [
-    [
-     {
-      "node": "Valid?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Webhook (sign link)": {
-   "main": [
-    [
-     {
-      "node": "Validate Request",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build HMAC Signature": {
-   "main": [
-    [
-     {
-      "node": "Respond Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "a8q9lmLVIxahPCTk",
-  "activeAtExport": true
- }
 }

@@ -1,353 +1,317 @@
 {
- "name": "Cadence Scheduler",
- "nodes": [
-  {
-   "id": "084b0282-97d4-493b-9b22-6641f32d2914",
-   "name": "Daily Cadence Check",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    240,
-    304
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "days",
-       "daysInterval": 1,
-       "triggerAtHour": 6,
-       "triggerAtMinute": 30
-      }
-     ]
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "1cf3c851-039d-4bcb-bc68-8ebb9e8245ba",
-   "name": "Find Due Steps",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    464,
-    304
-   ],
-   "parameters": {
-    "query": "SELECT cs.id, cs.campaign_id, cs.account, cs.action_type, cs.target, cs.reason,\n       cs.hypothesis, cs.predicted_metric, cs.predicted_direction, cs.threshold,\n       cs.window_days, cs.utm_campaign, cs.tracked_url, cs.outreach_draft,\n       cs.step_number, cs.adaptive_action, cs.adaptive_reason, c.run_id\nFROM cadence_steps cs\nJOIN campaigns c ON c.id = cs.campaign_id\nWHERE cs.status = 'pending' AND cs.scheduled_for <= now()\nORDER BY cs.scheduled_for ASC\nLIMIT 50;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "fa332d83-ba04-4099-87ab-0b979e0ce35d",
-   "name": "Insert Due Action",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    656,
-    304
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "actions",
-     "cachedResultName": "actions"
+  "name": "Cadence Scheduler",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 6,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "084b0282-97d4-493b-9b22-6641f32d2914",
+      "name": "Daily Cadence Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        304
+      ]
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cs.id, cs.campaign_id, cs.account, cs.action_type, cs.target, cs.reason,\n       cs.hypothesis, cs.predicted_metric, cs.predicted_direction, cs.threshold,\n       cs.window_days, cs.utm_campaign, cs.tracked_url, cs.outreach_draft,\n       cs.step_number, cs.adaptive_action, cs.adaptive_reason, c.run_id\nFROM cadence_steps cs\nJOIN campaigns c ON c.id = cs.campaign_id\nWHERE cs.status = 'pending' AND cs.scheduled_for <= now()\nORDER BY cs.scheduled_for ASC\nLIMIT 50;",
+        "options": {}
+      },
+      "id": "1cf3c851-039d-4bcb-bc68-8ebb9e8245ba",
+      "name": "Find Due Steps",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        464,
+        304
+      ]
     },
-    "columns": {
-     "value": {
-      "reason": "={{ $json.reason }}",
-      "run_id": "={{ $json.run_id }}",
-      "status": "recommended",
-      "target": "={{ $json.target }}",
-      "account": "={{ $json.account }}",
-      "priority": "={{ $json.step_number }}",
-      "threshold": "={{ $json.threshold }}",
-      "hypothesis": "={{ $json.hypothesis }}",
-      "action_type": "={{ $json.action_type }}",
-      "campaign_id": "={{ $json.campaign_id }}",
-      "tracked_url": "={{ $json.tracked_url }}",
-      "window_days": "={{ $json.window_days }}",
-      "utm_campaign": "={{ $json.utm_campaign }}",
-      "outreach_draft": "={{ $json.outreach_draft }}",
-      "predicted_metric": "={{ $json.predicted_metric }}",
-      "predicted_direction": "={{ $json.predicted_direction }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "actions",
+          "cachedResultName": "actions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "account": "={{ $json.account }}",
+            "action_type": "={{ $json.action_type }}",
+            "hypothesis": "={{ $json.hypothesis }}",
+            "predicted_metric": "={{ $json.predicted_metric }}",
+            "predicted_direction": "={{ $json.predicted_direction }}",
+            "threshold": "={{ $json.threshold }}",
+            "window_days": "={{ $json.window_days }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "tracked_url": "={{ $json.tracked_url }}",
+            "status": "recommended",
+            "outreach_draft": "={{ $json.outreach_draft }}",
+            "target": "={{ $json.target }}",
+            "priority": "={{ $json.step_number }}",
+            "reason": "={{ $json.reason }}",
+            "campaign_id": "={{ $json.campaign_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {},
+        "operation": "insert"
+      },
+      "id": "fa332d83-ba04-4099-87ab-0b979e0ce35d",
+      "name": "Insert Due Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        656,
+        304
+      ]
     },
-    "options": {},
-    "operation": "insert"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "02dbc136-9bb7-413e-9011-c646649d9514",
-   "name": "Mark Cadence Step Recommended",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    816,
-    304
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "cadence_steps",
-     "cachedResultName": "cadence_steps"
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "cadence_steps",
+          "cachedResultName": "cadence_steps"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Find Due Steps').item.json.id }}",
+            "status": "recommended",
+            "action_id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "02dbc136-9bb7-413e-9011-c646649d9514",
+      "name": "Mark Cadence Step Recommended",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        816,
+        304
+      ]
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
+    {
+      "parameters": {
+        "jsCode": "// Campaign-level approval model (2026-07-02): approving the brief authorizes the\n// cadence. Steps whose action_type is in app_config.approval_required_channels\n// (default phone,partner) still need a per-step click; everything else is\n// auto-approved right after this digest is sent (see Build Auto Approvals ->\n// Auto Approve Executed Steps, which replay /webhook/action-approval with\n// src=auto so the handler skips its per-action email).\n// 2026-07-02 (E): pre-approved cards also carry one-click \"log outcome\" links\n// (GET /webhook/engagement) so a reply/call lands in engagement_events without\n// the rep ever opening a dashboard.\nconst dueSteps = $('Find Due Steps').all().map(i => i.json);\nconst newActions = $('Insert Due Action').all().map(i => i.json);\nconst crypto = require('crypto');\nconst cfg = $('Get HMAC Secret').first().json;\nconst SECRET = cfg.value;\nconst gatedChannels = String(cfg.approval_required_channels || 'phone,partner').split(',').map(s => s.trim()).filter(Boolean);\nfunction hmac(msg) { return crypto.createHmac('sha256', SECRET).update(msg).digest('hex').slice(0, 32); }\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nconst digestBase = 'https://designprodigy.app.n8n.cloud/webhook/digest-approval';\nconst engBase = 'https://designprodigy.app.n8n.cloud/webhook/engagement';\nconst esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst CHANNEL = { email: 'Email', phone: 'Phone call', call_phone: 'Phone call', linkedin_dm: 'LinkedIn DM', linkedin_connect: 'LinkedIn connect', ads: 'Ads', webinar: 'Webinar', partner: 'Partner outreach', content: 'Content share', landing_page: 'Landing page', content_download: 'Content download' };\nconst OUTCOMES = {\n  email: [['reply_or_meeting', 'Got a reply / meeting']],\n  phone: [['call_connected', 'Call connected'], ['reply_or_meeting', 'Meeting set']],\n  linkedin_dm: [['reply_or_meeting', 'Got a reply']],\n  linkedin_connect: [['linkedin_accept', 'Connection accepted']],\n  webinar: [['registration', 'They registered']],\n  content: [['content_download', 'They downloaded']],\n  partner: [['partner_response', 'Partner responded']]\n};\nconst outcomesFor = t => OUTCOMES[t] || [['reply_or_meeting', 'Positive response']];\nfunction outcomeLinks(step, id) {\n  return outcomesFor(step.action_type).map(([evt, label]) =>\n    `<a href=\\\"${engBase}?account=${encodeURIComponent(step.account)}&event_type=${evt}&utm_campaign=${encodeURIComponent(step.utm_campaign || '')}&action_id=${id}&source=manual\\\" style=\\\"color:#2563eb;text-decoration:none;border:1px solid #dbe3f5;border-radius:8px;padding:4px 10px;font-size:12px;display:inline-block;\\\">${esc(label)}</a>`\n  ).join(' &nbsp;');\n}\n\nconst items = dueSteps.map((step, idx) => ({ step, action: newActions[idx] || {} })).filter(x => x.action.id);\nif (!items.length) return [];\n\nconst gated = items.filter(x => gatedChannels.includes(x.step.action_type));\nconst auto = items.filter(x => !gatedChannels.includes(x.step.action_type));\nconst n = items.length;\n\nconst gatedIds = gated.map(x => x.action.id).join(',');\nconst approveAllUrl = gated.length ? `${digestBase}?ids=${gatedIds}&sig=${hmac(`digest:${gatedIds}:approve`)}` : '';\nconst autoUrls = auto.map(x => `${base}?id=${x.action.id}&action=approve&sig=${hmac(`action:${x.action.id}:approve`)}&src=auto`);\n\nfunction card({ step, action }, i, isGated) {\n  const id = action.id;\n  const channel = CHANNEL[step.action_type] || step.action_type || 'touch';\n  const adaptive = step.adaptive_action ? `<p style=\\\"margin:6px 0 0;font-size:12px;\\\"><span style=\\\"background:#fef3f2;color:#b42318;border-radius:20px;padding:2px 10px;\\\">&#9888; ${esc(step.adaptive_action)}${step.adaptive_reason ? ' — ' + esc(step.adaptive_reason) : ''}</span></p>` : '';\n  const draft = step.outreach_draft ? `<p style=\\\"margin:8px 0 4px;font-size:12px;color:#5b6472;\\\"><strong>Ready-to-paste draft:</strong></p><pre style=\\\"white-space:pre-wrap;background:#f7f8fa;border:1px solid #e4e7ec;border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;margin:0;\\\">${esc(step.outreach_draft)}</pre>` : '<p style=\\\"font-size:12px;color:#8a93a3;margin:8px 0 0;\\\">(no draft provided — write your own)</p>';\n  const tracked = step.tracked_url ? `<p style=\\\"margin:8px 0 0;font-size:13px;\\\">Tracked link to include: <a href=\\\"${esc(step.tracked_url)}\\\">${esc(step.tracked_url)}</a></p>` : '';\n  let footer;\n  if (isGated) {\n    const approveUrl = `${base}?id=${id}&action=approve&sig=${hmac(`action:${id}:approve`)}`;\n    const skipUrl = `${base}?id=${id}&action=reject&sig=${hmac(`action:${id}:reject`)}&reason=skipped_from_digest`;\n    footer = `<p style=\\\"margin:12px 0 0;\\\"><a href=\\\"${approveUrl}\\\" style=\\\"background:#16a34a;color:#ffffff;text-decoration:none;border-radius:8px;padding:8px 14px;font-size:13px;display:inline-block;\\\">&#10003; Approve</a>&nbsp;<a href=\\\"${skipUrl}\\\" style=\\\"color:#b42318;text-decoration:none;border:1px solid #fecdca;border-radius:8px;padding:8px 14px;font-size:13px;display:inline-block;\\\">Skip</a></p>`;\n  } else {\n    footer = `<p style=\\\"margin:12px 0 0;font-size:12px;\\\"><span style=\\\"background:#ecfdf3;color:#16a34a;border-radius:20px;padding:3px 10px;\\\">&#10003; Pre-approved — ready to send</span></p>\\n<p style=\\\"margin:10px 0 0;font-size:12px;color:#5b6472;\\\">Once you've done it, log the outcome in one click:<br>${outcomeLinks(step, id)}</p>`;\n  }\n  return `<div style=\\\"border:1px solid #e4e7ec;border-radius:10px;padding:14px 16px;margin:0 0 12px;\\\">\\n  <p style=\\\"margin:0;font-size:15px;\\\"><strong>${i}. ${esc(step.account)}</strong> &nbsp;<span style=\\\"background:#eef2ff;color:#2563eb;border-radius:20px;font-size:11px;padding:2px 10px;\\\">${esc(channel)}</span> <span style=\\\"color:#8a93a3;font-size:11px;\\\">step ${esc(step.step_number)}</span></p>\\n  ${adaptive}\\n  <p style=\\\"margin:6px 0 0;font-size:13px;color:#1f2430;\\\">To: <strong>${esc(step.target || 'target contact')}</strong></p>\\n  ${step.reason ? `<p style=\\\"margin:6px 0 0;font-size:13px;color:#5b6472;\\\">Why now: ${esc(step.reason)}</p>` : ''}\\n  ${draft}\\n  ${tracked}\\n  ${footer}\\n</div>`;\n}\n\nlet idx = 0;\nconst autoSection = auto.length ? `<h3 style=\\\"font-size:15px;margin:18px 0 10px;\\\">To do today — pre-approved (${auto.length})</h3>\\n${auto.map(x => card(x, ++idx, false)).join('\\n')}` : '';\nconst gatedSection = gated.length ? `<h3 style=\\\"font-size:15px;margin:18px 0 10px;\\\">Needs your approval (${gated.length})</h3>\\n<p style=\\\"margin:0 0 12px;\\\"><a href=\\\"${approveAllUrl}\\\" style=\\\"background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 18px;font-size:14px;display:inline-block;\\\">&#10003; Approve all ${gated.length}</a></p>\\n${gated.map(x => card(x, ++idx, true)).join('\\n')}` : '';\n\nconst subject = `Your ${n} touch${n === 1 ? '' : 'es'} for today${gated.length ? ` (${gated.length} need${gated.length === 1 ? 's' : ''} approval)` : ''}`;\nconst html = `<div style=\\\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:640px;color:#1f2430;\\\">\\n  <h2 style=\\\"font-size:18px;margin:0 0 4px;\\\">${subject}</h2>\\n  <p style=\\\"color:#5b6472;font-size:13px;margin:0 0 8px;\\\">Approving the brief authorized this cadence — standard touches below are pre-approved with their drafts and tracked links ready. Only high-touch channels (${esc(gatedChannels.join(', ') || 'none')}) still ask for a click. Skips are fed back so the engine learns.</p>\\n  ${autoSection}\\n  ${gatedSection}\\n  <p style=\\\"color:#8a93a3;font-size:11px;margin-top:16px;\\\">Sent by Cadence Scheduler &middot; links are single-use per action (already-processed clicks are ignored) &middot; manage from the Pipeline Control Tower dashboard.</p>\\n</div>`;\n\nreturn [{ json: { subject, html, count: n, autoCount: auto.length, gatedCount: gated.length, autoUrls, sendTo: (cfg.rep_email || '').trim() || 'honlamchia@gmail.com' } }];",
+        "mode": "runOnceForAllItems",
+        "language": "javaScript"
+      },
+      "id": "7d90238a-b6de-461f-a40b-c1936337984d",
+      "name": "Build Daily Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        304
+      ]
     },
-    "columns": {
-     "value": {
-      "id": "={{ $('Find Due Steps').item.json.id }}",
-      "status": "recommended",
-      "action_id": "={{ $json.id }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [
-      "id"
-     ],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
+    {
+      "parameters": {
+        "sendTo": "={{ $json.sendTo }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {},
+        "resource": "message",
+        "operation": "send",
+        "emailType": "html"
+      },
+      "id": "58d59961-7426-4b6f-b5ac-7c78dfaa961f",
+      "name": "Send Daily Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        304
+      ],
+      "webhookId": "c667e0ec-840e-431c-9138-1de460036deb"
     },
-    "options": {},
-    "operation": "update"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select value from app_config where key='approval_hmac_secret') as value,\n  coalesce(nullif((select value from app_config where key='rep_notification_email'),''), 'rep-not-set@example.com') as rep_email,\n  (select value from app_config where key='approval_required_channels') as approval_required_channels;",
+        "options": {}
+      },
+      "id": "ad9136e8-5727-43ec-95ca-f3a0fe21e52d",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        992,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per pre-approved action; empty array cleanly ends the run.\nreturn ($('Build Daily Digest').first().json.autoUrls || []).map(url => ({ json: { url } }));",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "ab256283-3144-4c0a-962d-9563964cd035",
+      "name": "Build Auto Approvals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          },
+          "timeout": 30000
+        },
+        "method": "GET"
+      },
+      "id": "e1000a33-9897-42e7-9c51-7532193249a0",
+      "name": "Auto Approve Executed Steps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1792,
+        304
+      ],
+      "onError": "continueRegularOutput"
     }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "7d90238a-b6de-461f-a40b-c1936337984d",
-   "name": "Build Daily Digest",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1120,
-    304
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "// Campaign-level approval model (2026-07-02): approving the brief authorizes the\n// cadence. Steps whose action_type is in app_config.approval_required_channels\n// (default phone,partner) still need a per-step click; everything else is\n// auto-approved right after this digest is sent (see Build Auto Approvals ->\n// Auto Approve Executed Steps, which replay /webhook/action-approval with\n// src=auto so the handler skips its per-action email).\n// 2026-07-02 (E): pre-approved cards also carry one-click \"log outcome\" links\n// (GET /webhook/engagement) so a reply/call lands in engagement_events without\n// the rep ever opening a dashboard.\nconst dueSteps = $('Find Due Steps').all().map(i => i.json);\nconst newActions = $('Insert Due Action').all().map(i => i.json);\nconst crypto = require('crypto');\nconst cfg = $('Get HMAC Secret').first().json;\nconst SECRET = cfg.value;\nconst gatedChannels = String(cfg.approval_required_channels || 'phone,partner').split(',').map(s => s.trim()).filter(Boolean);\nfunction hmac(msg) { return crypto.createHmac('sha256', SECRET).update(msg).digest('hex').slice(0, 32); }\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nconst digestBase = 'https://designprodigy.app.n8n.cloud/webhook/digest-approval';\nconst engBase = 'https://designprodigy.app.n8n.cloud/webhook/engagement';\nconst esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst CHANNEL = { email: 'Email', phone: 'Phone call', call_phone: 'Phone call', linkedin_dm: 'LinkedIn DM', linkedin_connect: 'LinkedIn connect', ads: 'Ads', webinar: 'Webinar', partner: 'Partner outreach', content: 'Content share', landing_page: 'Landing page', content_download: 'Content download' };\nconst OUTCOMES = {\n  email: [['reply_or_meeting', 'Got a reply / meeting']],\n  phone: [['call_connected', 'Call connected'], ['reply_or_meeting', 'Meeting set']],\n  linkedin_dm: [['reply_or_meeting', 'Got a reply']],\n  linkedin_connect: [['linkedin_accept', 'Connection accepted']],\n  webinar: [['registration', 'They registered']],\n  content: [['content_download', 'They downloaded']],\n  partner: [['partner_response', 'Partner responded']]\n};\nconst outcomesFor = t => OUTCOMES[t] || [['reply_or_meeting', 'Positive response']];\nfunction outcomeLinks(step, id) {\n  return outcomesFor(step.action_type).map(([evt, label]) =>\n    `<a href=\\\"${engBase}?account=${encodeURIComponent(step.account)}&event_type=${evt}&utm_campaign=${encodeURIComponent(step.utm_campaign || '')}&action_id=${id}&source=manual\\\" style=\\\"color:#2563eb;text-decoration:none;border:1px solid #dbe3f5;border-radius:8px;padding:4px 10px;font-size:12px;display:inline-block;\\\">${esc(label)}</a>`\n  ).join(' &nbsp;');\n}\n\nconst items = dueSteps.map((step, idx) => ({ step, action: newActions[idx] || {} })).filter(x => x.action.id);\nif (!items.length) return [];\n\nconst gated = items.filter(x => gatedChannels.includes(x.step.action_type));\nconst auto = items.filter(x => !gatedChannels.includes(x.step.action_type));\nconst n = items.length;\n\nconst gatedIds = gated.map(x => x.action.id).join(',');\nconst approveAllUrl = gated.length ? `${digestBase}?ids=${gatedIds}&sig=${hmac(`digest:${gatedIds}:approve`)}` : '';\nconst autoUrls = auto.map(x => `${base}?id=${x.action.id}&action=approve&sig=${hmac(`action:${x.action.id}:approve`)}&src=auto`);\n\nfunction card({ step, action }, i, isGated) {\n  const id = action.id;\n  const channel = CHANNEL[step.action_type] || step.action_type || 'touch';\n  const adaptive = step.adaptive_action ? `<p style=\\\"margin:6px 0 0;font-size:12px;\\\"><span style=\\\"background:#fef3f2;color:#b42318;border-radius:20px;padding:2px 10px;\\\">&#9888; ${esc(step.adaptive_action)}${step.adaptive_reason ? ' — ' + esc(step.adaptive_reason) : ''}</span></p>` : '';\n  const draft = step.outreach_draft ? `<p style=\\\"margin:8px 0 4px;font-size:12px;color:#5b6472;\\\"><strong>Ready-to-paste draft:</strong></p><pre style=\\\"white-space:pre-wrap;background:#f7f8fa;border:1px solid #e4e7ec;border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;margin:0;\\\">${esc(step.outreach_draft)}</pre>` : '<p style=\\\"font-size:12px;color:#8a93a3;margin:8px 0 0;\\\">(no draft provided — write your own)</p>';\n  const tracked = step.tracked_url ? `<p style=\\\"margin:8px 0 0;font-size:13px;\\\">Tracked link to include: <a href=\\\"${esc(step.tracked_url)}\\\">${esc(step.tracked_url)}</a></p>` : '';\n  let footer;\n  if (isGated) {\n    const approveUrl = `${base}?id=${id}&action=approve&sig=${hmac(`action:${id}:approve`)}`;\n    const skipUrl = `${base}?id=${id}&action=reject&sig=${hmac(`action:${id}:reject`)}&reason=skipped_from_digest`;\n    footer = `<p style=\\\"margin:12px 0 0;\\\"><a href=\\\"${approveUrl}\\\" style=\\\"background:#16a34a;color:#ffffff;text-decoration:none;border-radius:8px;padding:8px 14px;font-size:13px;display:inline-block;\\\">&#10003; Approve</a>&nbsp;<a href=\\\"${skipUrl}\\\" style=\\\"color:#b42318;text-decoration:none;border:1px solid #fecdca;border-radius:8px;padding:8px 14px;font-size:13px;display:inline-block;\\\">Skip</a></p>`;\n  } else {\n    footer = `<p style=\\\"margin:12px 0 0;font-size:12px;\\\"><span style=\\\"background:#ecfdf3;color:#16a34a;border-radius:20px;padding:3px 10px;\\\">&#10003; Pre-approved — ready to send</span></p>\\n<p style=\\\"margin:10px 0 0;font-size:12px;color:#5b6472;\\\">Once you've done it, log the outcome in one click:<br>${outcomeLinks(step, id)}</p>`;\n  }\n  return `<div style=\\\"border:1px solid #e4e7ec;border-radius:10px;padding:14px 16px;margin:0 0 12px;\\\">\\n  <p style=\\\"margin:0;font-size:15px;\\\"><strong>${i}. ${esc(step.account)}</strong> &nbsp;<span style=\\\"background:#eef2ff;color:#2563eb;border-radius:20px;font-size:11px;padding:2px 10px;\\\">${esc(channel)}</span> <span style=\\\"color:#8a93a3;font-size:11px;\\\">step ${esc(step.step_number)}</span></p>\\n  ${adaptive}\\n  <p style=\\\"margin:6px 0 0;font-size:13px;color:#1f2430;\\\">To: <strong>${esc(step.target || 'target contact')}</strong></p>\\n  ${step.reason ? `<p style=\\\"margin:6px 0 0;font-size:13px;color:#5b6472;\\\">Why now: ${esc(step.reason)}</p>` : ''}\\n  ${draft}\\n  ${tracked}\\n  ${footer}\\n</div>`;\n}\n\nlet idx = 0;\nconst autoSection = auto.length ? `<h3 style=\\\"font-size:15px;margin:18px 0 10px;\\\">To do today — pre-approved (${auto.length})</h3>\\n${auto.map(x => card(x, ++idx, false)).join('\\n')}` : '';\nconst gatedSection = gated.length ? `<h3 style=\\\"font-size:15px;margin:18px 0 10px;\\\">Needs your approval (${gated.length})</h3>\\n<p style=\\\"margin:0 0 12px;\\\"><a href=\\\"${approveAllUrl}\\\" style=\\\"background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 18px;font-size:14px;display:inline-block;\\\">&#10003; Approve all ${gated.length}</a></p>\\n${gated.map(x => card(x, ++idx, true)).join('\\n')}` : '';\n\nconst subject = `Your ${n} touch${n === 1 ? '' : 'es'} for today${gated.length ? ` (${gated.length} need${gated.length === 1 ? 's' : ''} approval)` : ''}`;\nconst html = `<div style=\\\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:640px;color:#1f2430;\\\">\\n  <h2 style=\\\"font-size:18px;margin:0 0 4px;\\\">${subject}</h2>\\n  <p style=\\\"color:#5b6472;font-size:13px;margin:0 0 8px;\\\">Approving the brief authorized this cadence — standard touches below are pre-approved with their drafts and tracked links ready. Only high-touch channels (${esc(gatedChannels.join(', ') || 'none')}) still ask for a click. Skips are fed back so the engine learns.</p>\\n  ${autoSection}\\n  ${gatedSection}\\n  <p style=\\\"color:#8a93a3;font-size:11px;margin-top:16px;\\\">Sent by Cadence Scheduler &middot; links are single-use per action (already-processed clicks are ignored) &middot; manage from the Pipeline Control Tower dashboard.</p>\\n</div>`;\n\nreturn [{ json: { subject, html, count: n, autoCount: auto.length, gatedCount: gated.length, autoUrls, sendTo: (cfg.rep_email || '').trim() || 'honlamchia@gmail.com' } }];",
-    "language": "javaScript"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "58d59961-7426-4b6f-b5ac-7c78dfaa961f",
-   "name": "Send Daily Digest",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    1344,
-    304
-   ],
-   "webhookId": "c667e0ec-840e-431c-9138-1de460036deb",
-   "parameters": {
-    "sendTo": "={{ $json.sendTo }}",
-    "message": "={{ $json.html }}",
-    "options": {},
-    "subject": "={{ $json.subject }}",
-    "resource": "message",
-    "emailType": "html",
-    "operation": "send"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
+  ],
+  "connections": {
+    "Daily Cadence Check": {
+      "main": [
+        [
+          {
+            "node": "Find Due Steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Due Steps": {
+      "main": [
+        [
+          {
+            "node": "Insert Due Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Due Action": {
+      "main": [
+        [
+          {
+            "node": "Mark Cadence Step Recommended",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Cadence Step Recommended": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Daily Digest": {
+      "main": [
+        [
+          {
+            "node": "Build Auto Approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Auto Approvals": {
+      "main": [
+        [
+          {
+            "node": "Auto Approve Executed Steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "typeVersion": 2.2
   },
-  {
-   "id": "ad9136e8-5727-43ec-95ca-f3a0fe21e52d",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    992,
-    304
-   ],
-   "parameters": {
-    "query": "select\n  (select value from app_config where key='approval_hmac_secret') as value,\n  coalesce(nullif((select value from app_config where key='rep_notification_email'),''), 'rep-not-set@example.com') as rep_email,\n  (select value from app_config where key='approval_required_channels') as approval_required_channels;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "ab256283-3144-4c0a-962d-9563964cd035",
-   "name": "Build Auto Approvals",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1568,
-    304
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "// One item per pre-approved action; empty array cleanly ends the run.\nreturn ($('Build Daily Digest').first().json.autoUrls || []).map(url => ({ json: { url } }));"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "e1000a33-9897-42e7-9c51-7532193249a0",
-   "name": "Auto Approve Executed Steps",
-   "type": "n8n-nodes-base.httpRequest",
-   "onError": "continueRegularOutput",
-   "position": [
-    1792,
-    304
-   ],
-   "parameters": {
-    "url": "={{ $json.url }}",
-    "method": "GET",
-    "options": {
-     "timeout": 30000,
-     "batching": {
-      "batch": {
-       "batchSize": 1,
-       "batchInterval": 500
-      }
-     }
-    }
-   },
-   "typeVersion": 4.4
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Find Due Steps": {
-   "main": [
-    [
-     {
-      "node": "Insert Due Action",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Build Daily Digest",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert Due Action": {
-   "main": [
-    [
-     {
-      "node": "Mark Cadence Step Recommended",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Send Daily Digest": {
-   "main": [
-    [
-     {
-      "node": "Build Auto Approvals",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Daily Digest": {
-   "main": [
-    [
-     {
-      "node": "Send Daily Digest",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Daily Cadence Check": {
-   "main": [
-    [
-     {
-      "node": "Find Due Steps",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Auto Approvals": {
-   "main": [
-    [
-     {
-      "node": "Auto Approve Executed Steps",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Cadence Step Recommended": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "LcZx5U9dVmOwaGQl",
-  "activeAtExport": true
- }
 }

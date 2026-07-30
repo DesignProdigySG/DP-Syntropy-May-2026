@@ -1,1100 +1,831 @@
 {
- "name": "Intelligent Automation — Delivery Layer",
- "nodes": [
-  {
-   "id": "b8848186-a06a-4f7b-a8a5-bdfbe9940529",
-   "name": "When clicking ‘Execute workflow’",
-   "type": "n8n-nodes-base.manualTrigger",
-   "position": [
-    -4688,
-    272
-   ],
-   "parameters": {},
-   "typeVersion": 1
-  },
-  {
-   "id": "b7fdbd65-0f81-43a9-88e3-6e311efe46ae",
-   "name": "Parse Input Code",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    -3616,
-    448
-   ],
-   "parameters": {
-    "jsCode": "const today = new Date();\n\nreturn $input.all().map(item => {\n  const buyingGroup = item.json.buyingGroup || [];\n\n  // Process each member in the buying group\n  const processedGroup = buyingGroup.map(member => {\n    const signals = member.signals || [];\n    const negativeSignals = member.negativeSignals || [];\n\n    // Weighted positive signals per member\n    const weighted = signals.map(s => {\n      const daysDiff = Math.floor((today - new Date(s.date)) / (1000*60*60*24));\n      let weight;\n      if (daysDiff <= 7) weight = \"HIGH\";\n      else if (daysDiff <= 30) weight = \"MEDIUM\";\n      else weight = \"LOW\";\n      return `${s.type} (${daysDiff} days ago, recency: ${weight})`;\n    });\n\n    // Parsed negative signals per member\n    const parsedNegative = negativeSignals.map(n => {\n      const daysDiff = Math.floor((today - new Date(n.date)) / (1000*60*60*24));\n      return `${n.type}: ${n.description} (${daysDiff} days ago)`;\n    });\n\n    return {\n      contactName: member.contactName,\n      jobTitle: member.jobTitle,\n      weightedSignals: weighted.join(', ') || 'No signals',\n      parsedNegativeSignals: parsedNegative.join(' | ') || 'None',\n      hasNegativeSignals: negativeSignals.length > 0,\n      engaged: signals.length > 0\n    };\n  });\n\n  // Buying group coverage calculation\n  const engagedCount = processedGroup.filter(m => m.engaged).length;\n  const totalCount = processedGroup.length;\n  const coveragePct = totalCount > 0 ? Math.round((engagedCount / totalCount) * 100) : 0;\n  const coverageLabel = coveragePct >= 66 ? \"BROAD\" : coveragePct >= 33 ? \"PARTIAL\" : \"NARROW\";\n  const engagedRoles = processedGroup.filter(m => m.engaged).map(m => `${m.contactName} (${m.jobTitle})`).join(', ');\n\n  // Aggregate all negative signals across buying group\n  const allNegativeSignals = processedGroup\n    .filter(m => m.hasNegativeSignals)\n    .map(m => `[${m.contactName}] ${m.parsedNegativeSignals}`)\n    .join(' | ');\n\n  const hasAnyNegativeSignals = processedGroup.some(m => m.hasNegativeSignals);\n\n  // Summary of all weighted signals across buying group\n  const allWeightedSignals = processedGroup\n    .filter(m => m.engaged)\n    .map(m => `[${m.contactName} - ${m.jobTitle}] ${m.weightedSignals}`)\n    .join(' | ');\n\n  return {\n    json: {\n      ...item.json,\n      buyingGroupProcessed: processedGroup,\n      allWeightedSignals,\n      allNegativeSignals: allNegativeSignals || 'None',\n      hasAnyNegativeSignals,\n      buyingGroupCoverage: coveragePct,\n      coverageLabel,\n      engagedRoles,\n      engagedCount,\n      totalCount\n    }\n  };\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "903e1de9-f0c9-4f03-9230-f3cc6cb60fa9",
-   "name": "Insert rows in a table",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    -2208,
-    448
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "name",
-     "value": "=pipeline_runs"
+  "name": "Intelligent Automation — Delivery Layer",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -4688,
+        272
+      ],
+      "id": "b8848186-a06a-4f7b-a8a5-bdfbe9940529",
+      "name": "When clicking ‘Execute workflow’"
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public",
-     "cachedResultName": "public"
+    {
+      "parameters": {
+        "jsCode": "const today = new Date();\n\nreturn $input.all().map(item => {\n  const buyingGroup = item.json.buyingGroup || [];\n\n  // Process each member in the buying group\n  const processedGroup = buyingGroup.map(member => {\n    const signals = member.signals || [];\n    const negativeSignals = member.negativeSignals || [];\n\n    // Weighted positive signals per member\n    const weighted = signals.map(s => {\n      const daysDiff = Math.floor((today - new Date(s.date)) / (1000*60*60*24));\n      let weight;\n      if (daysDiff <= 7) weight = \"HIGH\";\n      else if (daysDiff <= 30) weight = \"MEDIUM\";\n      else weight = \"LOW\";\n      return `${s.type} (${daysDiff} days ago, recency: ${weight})`;\n    });\n\n    // Parsed negative signals per member\n    const parsedNegative = negativeSignals.map(n => {\n      const daysDiff = Math.floor((today - new Date(n.date)) / (1000*60*60*24));\n      return `${n.type}: ${n.description} (${daysDiff} days ago)`;\n    });\n\n    return {\n      contactName: member.contactName,\n      jobTitle: member.jobTitle,\n      weightedSignals: weighted.join(', ') || 'No signals',\n      parsedNegativeSignals: parsedNegative.join(' | ') || 'None',\n      hasNegativeSignals: negativeSignals.length > 0,\n      engaged: signals.length > 0\n    };\n  });\n\n  // Buying group coverage calculation\n  const engagedCount = processedGroup.filter(m => m.engaged).length;\n  const totalCount = processedGroup.length;\n  const coveragePct = totalCount > 0 ? Math.round((engagedCount / totalCount) * 100) : 0;\n  const coverageLabel = coveragePct >= 66 ? \"BROAD\" : coveragePct >= 33 ? \"PARTIAL\" : \"NARROW\";\n  const engagedRoles = processedGroup.filter(m => m.engaged).map(m => `${m.contactName} (${m.jobTitle})`).join(', ');\n\n  // Aggregate all negative signals across buying group\n  const allNegativeSignals = processedGroup\n    .filter(m => m.hasNegativeSignals)\n    .map(m => `[${m.contactName}] ${m.parsedNegativeSignals}`)\n    .join(' | ');\n\n  const hasAnyNegativeSignals = processedGroup.some(m => m.hasNegativeSignals);\n\n  // Summary of all weighted signals across buying group\n  const allWeightedSignals = processedGroup\n    .filter(m => m.engaged)\n    .map(m => `[${m.contactName} - ${m.jobTitle}] ${m.weightedSignals}`)\n    .join(' | ');\n\n  return {\n    json: {\n      ...item.json,\n      buyingGroupProcessed: processedGroup,\n      allWeightedSignals,\n      allNegativeSignals: allNegativeSignals || 'None',\n      hasAnyNegativeSignals,\n      buyingGroupCoverage: coveragePct,\n      coverageLabel,\n      engagedRoles,\n      engagedCount,\n      totalCount\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3616,
+        448
+      ],
+      "id": "b7fdbd65-0f81-43a9-88e3-6e311efe46ae",
+      "name": "Parse Input Code"
     },
-    "columns": {
-     "value": {
-      "theme": "={{ $('Loop Over Items').first().json.theme }}",
-      "source": "={{ $('Loop Over Items').first().json._source }}",
-      "company": "={{ $('Loop Over Items').first().json.company }}",
-      "industry": "={{ $('Loop Over Items').first().json.industry }}",
-      "when_stage": "={{ $('Loop Over Items').first().json.when_stage }}",
-      "raw_payload": "={{ JSON.stringify($('Loop Over Items').first().json._raw || {}) }}",
-      "total_count": "={{ $('Loop Over Items').first().json.totalCount }}",
-      "brief_s3_url": "={{ $('Edit Fields1').first().json.brief_s3_url }}",
-      "trigger_type": "={{ $('Loop Over Items').first().json.triggerEvent.eventType }}",
-      "when_urgency": "={{ $('Loop Over Items').first().json.when_urgency }}",
-      "engaged_count": "={{ $('Loop Over Items').first().json.engagedCount }}",
-      "is_actionable": "={{ $('Loop Over Items').first().json.triggerEvent.isActionable }}",
-      "trigger_notes": "={{ $('Loop Over Items').first().json.trigger_notes }}",
-      "coverage_label": "={{ $('Loop Over Items').first().json.coverageLabel }}",
-      "human_approved": false,
-      "brief_generated": true,
-      "enrichment_needed": "={{ $('Loop Over Items').first().json.enrichmentNeeded }}"
-     },
-     "schema": [
-      {
-       "id": "id",
-       "type": "number",
-       "display": true,
-       "removed": true,
-       "required": false,
-       "displayName": "id",
-       "defaultMatch": true,
-       "canBeUsedToMatch": true
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "cachedResultName": "public",
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "=pipeline_runs"
+        },
+        "columns": {
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "brief_generated": true,
+            "brief_s3_url": "={{ $('Edit Fields1').first().json.brief_s3_url }}",
+            "company": "={{ $('Loop Over Items').first().json.company }}",
+            "coverage_label": "={{ $('Loop Over Items').first().json.coverageLabel }}",
+            "engaged_count": "={{ $('Loop Over Items').first().json.engagedCount }}",
+            "enrichment_needed": "={{ $('Loop Over Items').first().json.enrichmentNeeded }}",
+            "human_approved": false,
+            "industry": "={{ $('Loop Over Items').first().json.industry }}",
+            "is_actionable": "={{ $('Loop Over Items').first().json.triggerEvent.isActionable }}",
+            "raw_payload": "={{ JSON.stringify($('Loop Over Items').first().json._raw || {}) }}",
+            "source": "={{ $('Loop Over Items').first().json._source }}",
+            "theme": "={{ $('Loop Over Items').first().json.theme }}",
+            "total_count": "={{ $('Loop Over Items').first().json.totalCount }}",
+            "trigger_notes": "={{ $('Loop Over Items').first().json.trigger_notes }}",
+            "trigger_type": "={{ $('Loop Over Items').first().json.triggerEvent.eventType }}",
+            "when_stage": "={{ $('Loop Over Items').first().json.when_stage }}",
+            "when_urgency": "={{ $('Loop Over Items').first().json.when_urgency }}"
+          }
+        },
+        "options": {}
       },
-      {
-       "id": "run_at",
-       "type": "dateTime",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "run_at",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "company",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "company",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "trigger_type",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "trigger_type",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "is_actionable",
-       "type": "boolean",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "is_actionable",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "coverage_label",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "coverage_label",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "engaged_count",
-       "type": "number",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "engaged_count",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "total_count",
-       "type": "number",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "total_count",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_score",
-       "type": "number",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_score",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_threshold",
-       "type": "number",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_threshold",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_confidence",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_confidence",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_rationale",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_rationale",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_vetoed",
-       "type": "boolean",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_vetoed",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_veto_reason",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_veto_reason",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate1_result",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate1_result",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "gate2_result",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "gate2_result",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "brief_generated",
-       "type": "boolean",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "brief_generated",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "brief_s3_url",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "brief_s3_url",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "human_approved",
-       "type": "boolean",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "human_approved",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "notes",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "notes",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "when_urgency",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "when_urgency",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "when_stage",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "when_stage",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "cap_archetype",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "cap_archetype",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "cap_confidence",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "cap_confidence",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "source",
-       "type": "string",
-       "display": true,
-       "removed": false,
-       "required": false,
-       "displayName": "source",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      }
-     ],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [
-      "id"
-     ],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2208,
+        448
+      ],
+      "id": "903e1de9-f0c9-4f03-9230-f3cc6cb60fa9",
+      "name": "Insert rows in a table"
     },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "6960d500-c139-47f9-8052-9836b8ffbca7",
-   "name": "Upload a file",
-   "type": "n8n-nodes-base.awsS3",
-   "position": [
-    -2640,
-    448
-   ],
-   "parameters": {
-    "fileName": "=briefs/{{ $('Loop Over Items').first().json.company }}-{{ $now.format('yyyy-MM-dd') }}.html",
-    "operation": "upload",
-    "binaryData": false,
-    "bucketName": "dp-pipeline-briefs-801945369051-ap-southeast-1-an",
-    "fileContent": "={{ $json.htmlBrief }}",
-    "additionalFields": {}
-   },
-   "credentials": {
-    "aws": {
-     "id": "YlVhiOWkge9JZ2m7",
-     "name": "AWS (IAM) account"
-    }
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "825bcf9a-7771-4dd0-99e3-b590d444c6fd",
-   "name": "Edit Fields1",
-   "type": "n8n-nodes-base.set",
-   "position": [
-    -2432,
-    448
-   ],
-   "parameters": {
-    "options": {},
-    "assignments": {
-     "assignments": [
-      {
-       "id": "4a83034a-39be-469a-b81c-86fb8ad99f13",
-       "name": "brief_s3_url",
-       "type": "string",
-       "value": "=https://dp-pipeline-briefs-801945369051-ap-southeast-1-an.s3.ap-southeast-1.amazonaws.com/briefs/{{ $('Loop Over Items').first().json.company.replace(/ /g, '+') }}-{{ $now.format('yyyy-MM-dd') }}.html"
-      }
-     ]
-    }
-   },
-   "executeOnce": false,
-   "typeVersion": 3.4
-  },
-  {
-   "id": "5750d9a8-638d-4ad3-9ef0-8f730c9dfd28",
-   "name": "OpenAI Chat Model3",
-   "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-   "position": [
-    -3184,
-    624
-   ],
-   "parameters": {
-    "model": {
-     "__rl": true,
-     "mode": "list",
-     "value": "gpt-4o-mini"
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "dp-pipeline-briefs-801945369051-ap-southeast-1-an",
+        "fileName": "=briefs/{{ $('Loop Over Items').first().json.company }}-{{ $now.format('yyyy-MM-dd') }}.html",
+        "binaryData": false,
+        "fileContent": "={{ $json.htmlBrief }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 2,
+      "position": [
+        -2640,
+        448
+      ],
+      "id": "6960d500-c139-47f9-8052-9836b8ffbca7",
+      "name": "Upload a file"
     },
-    "options": {},
-    "builtInTools": {}
-   },
-   "credentials": {
-    "openAiApi": {
-     "id": "dJxyXpOYQSqrDm62",
-     "name": "OpenAI account"
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "d57218fd-15cd-49a1-bfa5-fc2bbcd119b9",
-   "name": "B2B Sales Brief Writer",
-   "type": "@n8n/n8n-nodes-langchain.agent",
-   "onError": "continueErrorOutput",
-   "position": [
-    -3184,
-    448
-   ],
-   "parameters": {
-    "text": "=Account data:\nCompany: {{ $('Loop Over Items').first().json.company }}\nTrigger: {{ $('Loop Over Items').first().json.triggerEvent.description }}\nCoverage: {{ $('Loop Over Items').first().json.coverageLabel }}\nEngaged Members: {{ $('Loop Over Items').first().json.engagedRoles }}\nSignals: {{ $('Loop Over Items').first().json.allWeightedSignals }}\n\nEngine decision (use as the move, do not re-decide):\nStage: {{ $('Loop Over Items').first().json.when_stage }}\nUrgency: {{ $('Loop Over Items').first().json.when_urgency }}\nRecommended move: {{ $('Loop Over Items').first().json.when_the_move }}\nOpen with: {{ $('Loop Over Items').first().json.when_open_with }}",
-    "options": {
-     "systemMessage": "You are a B2B sales brief writer. The WHEN engine has ALREADY decided the move; your job is to write the brief that delivers it — do not re-decide. Under 150 words. Six elements exactly:\n\n1. Trigger Event — what happened and when\n2. Account Context — company, industry, competitive situation\n3. Opening Hypothesis — why this account, why now\n4. Stage-Designated Action — the engine's recommended move\n5. Buying Group Indicator — who is engaged, coverage label\n6. Signal Return — what to watch for next"
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4a83034a-39be-469a-b81c-86fb8ad99f13",
+              "name": "brief_s3_url",
+              "value": "=https://dp-pipeline-briefs-801945369051-ap-southeast-1-an.s3.ap-southeast-1.amazonaws.com/briefs/{{ $('Loop Over Items').first().json.company.replace(/ /g, '+') }}-{{ $now.format('yyyy-MM-dd') }}.html",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2432,
+        448
+      ],
+      "id": "825bcf9a-7771-4dd0-99e3-b590d444c6fd",
+      "name": "Edit Fields1",
+      "executeOnce": false
     },
-    "promptType": "define"
-   },
-   "typeVersion": 3.1
-  },
-  {
-   "id": "35cd96ee-645c-4753-a733-5243eb5e0c0f",
-   "name": "HTML Builder",
-   "type": "n8n-nodes-base.set",
-   "position": [
-    -2848,
-    448
-   ],
-   "parameters": {
-    "options": {},
-    "assignments": {
-     "assignments": [
-      {
-       "id": "a009ef7b-30bf-4522-9503-2bf5a5acbddb",
-       "name": "htmlBrief",
-       "type": "string",
-       "value": "=<html> <body style=\"font-family:Arial;max-width:600px;margin:40px auto;color:#1a1a1a\">\n  <h2 style=\"color:#2563eb\">Sales Brief &#8212; {{ $('Loop Over Items').item.json.company }}</h2>\n  <p style=\"color:#888;font-size:13px\">Generated: {{ $now }}</p>\n  <div style=\"display:flex;gap:16px;margin:12px 0\">\n    <span style=\"background:#2563eb;color:white;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:bold\">Stage {{ $('Loop Over Items').first().json.when_stage }}</span>\n    <span style=\"background:#16a34a;color:white;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:bold\">{{ $('Loop Over Items').first().json.coverageLabel }}</span>\n  </div>\n  {{ $('Loop Over Items').first().json.posture_detail ? '<p style=\"color:#6b7280;font-size:13px;font-style:italic;margin:4px 0 0\">' + $('Loop Over Items').first().json.posture_detail + '</p>' : '' }}\n  <hr style=\"border:1px solid #e5e5e5\">\n  {{ $('Loop Over Items').first().json.enrichmentNeeded ? '<div style=\"background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin:0 0 14px;font-size:13px;color:#92400e\"><b>&#9888; Buying group needs enrichment.</b> Unconfirmed: ' + ($('Loop Over Items').first().json.unenrichedRoles || 'contacts') + '. Coverage stays limited until these are confirmed.</div>' : '' }}\n  <p style=\"line-height:1.8;font-size:15px\">{{ $json.output.replace(/[—–]/g, ' - ').replace(/(?<!\\d)(?:[1-6]\\.\\s+)?\\*{0,2}(Trigger Event|Account Context|Opening Hypothesis|Stage-Designated Action|Buying Group Indicator|Signal Return)\\*{0,2}:?\\*{0,2}/g, '<br><br><strong>$1:</strong>').replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>').replace(/^(<br><br>)/, '') }}</p>\n  {{ $('Loop Over Items').first().json.when_the_catch ? '<div style=\"background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px 14px;margin:16px 0\"><div style=\"font-weight:bold;color:#b45309;font-size:13px;margin-bottom:4px\">&#9888; The Catch</div><div style=\"font-size:14px;line-height:1.6\">' + $('Loop Over Items').first().json.when_the_catch + '</div></div>' : '' }}\n  {{ $('Loop Over Items').first().json.when_whats_at_stake ? '<div style=\"margin:16px 0\"><div style=\"font-weight:bold;color:#1f2937;font-size:13px;margin-bottom:6px\">What&#39;s at stake</div><ul style=\"font-size:14px;line-height:1.7;margin:0;padding-left:20px\">' + String($('Loop Over Items').first().json.when_whats_at_stake).split(' | ').map(function(s){ return '<li>' + s + '</li>'; }).join('') + '</ul></div>' : '' }}\n  {{ ($('Loop Over Items').first().json.signal_sources || []).length ? '<div style=\"margin:16px 0 0\"><div style=\"font-weight:bold;color:#1f2937;font-size:13px;margin-bottom:6px\">Sources</div><ul style=\"font-size:13px;line-height:1.6;margin:0;padding-left:20px\">' + ($('Loop Over Items').first().json.signal_sources).map(function(s){ return '<li><a href=\"' + s.url + '\" style=\"color:#2563eb\">' + s.label + '</a></li>'; }).join('') + '</ul></div>' : '' }}\n</body> </html>"
-      }
-     ]
-    }
-   },
-   "typeVersion": 3.4
-  },
-  {
-   "id": "8e77adf6-f01d-48e6-8593-468a28156927",
-   "name": "Webhook",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    -4688,
-    464
-   ],
-   "webhookId": "51ccc21c-8b9e-4e90-94fc-dabaf1ae0079",
-   "parameters": {
-    "path": "delivery-layer",
-    "options": {},
-    "httpMethod": "POST"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "29b01a63-dcad-45f7-88c4-777aa2257357",
-   "name": "Stop and Error",
-   "type": "n8n-nodes-base.stopAndError",
-   "position": [
-    -3952,
-    768
-   ],
-   "parameters": {
-    "errorMessage": "Pipeline rejected: missing company field"
-   },
-   "typeVersion": 1
-  },
-  {
-   "id": "f1c24cc4-28fd-4031-8368-731f4fb8fd82",
-   "name": "Validate Company",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    -4080,
-    464
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "76a23f01-f6aa-46eb-984f-5da1914d84a9",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.company }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "8ce0b929-07f8-4dcf-be8f-5ed9b00139da",
-   "name": "Validate BuyingGroup",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    -3840,
-    464
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "a9c0b258-8bbf-459a-9099-943418ac9b60",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.buyingGroup }}",
-       "rightValue": ""
-      }
-     ]
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -3184,
+        624
+      ],
+      "id": "5750d9a8-638d-4ad3-9ef0-8f730c9dfd28",
+      "name": "OpenAI Chat Model3"
     },
-    "looseTypeValidation": true
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "a7eb65b4-5762-4013-88d7-b4f092332e11",
-   "name": "Stop and Error1",
-   "type": "n8n-nodes-base.stopAndError",
-   "position": [
-    -3712,
-    768
-   ],
-   "parameters": {
-    "errorMessage": "Pipeline rejected: missing buyingGroup"
-   },
-   "typeVersion": 1
-  },
-  {
-   "id": "154a1380-ebe0-43e2-9270-6783d0848d6f",
-   "name": "Edit Fields4",
-   "type": "n8n-nodes-base.set",
-   "position": [
-    -2864,
-    848
-   ],
-   "parameters": {
-    "options": {},
-    "assignments": {
-     "assignments": [
-      {
-       "id": "a26ce4a8-6543-41b9-a994-4241c57520a1",
-       "name": "node_name",
-       "type": "string",
-       "value": "B2B Sales Brief Writer"
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Account data:\nCompany: {{ $('Loop Over Items').first().json.company }}\nTrigger: {{ $('Loop Over Items').first().json.triggerEvent.description }}\nCoverage: {{ $('Loop Over Items').first().json.coverageLabel }}\nEngaged Members: {{ $('Loop Over Items').first().json.engagedRoles }}\nSignals: {{ $('Loop Over Items').first().json.allWeightedSignals }}\n\nEngine decision (use as the move, do not re-decide):\nStage: {{ $('Loop Over Items').first().json.when_stage }}\nUrgency: {{ $('Loop Over Items').first().json.when_urgency }}\nRecommended move: {{ $('Loop Over Items').first().json.when_the_move }}\nOpen with: {{ $('Loop Over Items').first().json.when_open_with }}",
+        "options": {
+          "systemMessage": "You are a B2B sales brief writer. The WHEN engine has ALREADY decided the move; your job is to write the brief that delivers it — do not re-decide. Under 150 words. Six elements exactly:\n\n1. Trigger Event — what happened and when\n2. Account Context — company, industry, competitive situation\n3. Opening Hypothesis — why this account, why now\n4. Stage-Designated Action — the engine's recommended move\n5. Buying Group Indicator — who is engaged, coverage label\n6. Signal Return — what to watch for next"
+        }
       },
-      {
-       "id": "ba9aeb0e-a9d0-4e61-93a0-668a98817a1b",
-       "name": "error_message",
-       "type": "string",
-       "value": "={{ $json.error.message }}"
-      },
-      {
-       "id": "05c128a7-0921-4e8c-b352-1abd22008e27",
-       "name": "timestamp",
-       "type": "string",
-       "value": "={{ $now }}"
-      },
-      {
-       "id": "ed147fef-44a0-46fd-bf99-6391b2be5436",
-       "name": "input_data",
-       "type": "string",
-       "value": "={{ $('Loop Over Items').first().json.company }}"
-      }
-     ]
-    }
-   },
-   "typeVersion": 3.4
-  },
-  {
-   "id": "18a745f9-58f9-4237-aa2c-41451013ed63",
-   "name": "Insert rows in a table6",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    -2656,
-    848
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "pipeline_errors",
-     "cachedResultName": "pipeline_errors"
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -3184,
+        448
+      ],
+      "id": "d57218fd-15cd-49a1-bfa5-fc2bbcd119b9",
+      "name": "B2B Sales Brief Writer",
+      "onError": "continueErrorOutput"
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a009ef7b-30bf-4522-9503-2bf5a5acbddb",
+              "name": "htmlBrief",
+              "type": "string",
+              "value": "=<html> <body style=\"font-family:Arial;max-width:600px;margin:40px auto;color:#1a1a1a\">\n  <h2 style=\"color:#2563eb\">Sales Brief &#8212; {{ $('Loop Over Items').item.json.company }}</h2>\n  <p style=\"color:#888;font-size:13px\">Generated: {{ $now }}</p>\n  <div style=\"display:flex;gap:16px;margin:12px 0\">\n    <span style=\"background:#2563eb;color:white;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:bold\">Stage {{ $('Loop Over Items').first().json.when_stage }}</span>\n    <span style=\"background:#16a34a;color:white;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:bold\">{{ $('Loop Over Items').first().json.coverageLabel }}</span>\n  </div>\n  {{ $('Loop Over Items').first().json.posture_detail ? '<p style=\"color:#6b7280;font-size:13px;font-style:italic;margin:4px 0 0\">' + $('Loop Over Items').first().json.posture_detail + '</p>' : '' }}\n  <hr style=\"border:1px solid #e5e5e5\">\n  {{ $('Loop Over Items').first().json.enrichmentNeeded ? '<div style=\"background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin:0 0 14px;font-size:13px;color:#92400e\"><b>&#9888; Buying group needs enrichment.</b> Unconfirmed: ' + ($('Loop Over Items').first().json.unenrichedRoles || 'contacts') + '. Coverage stays limited until these are confirmed.</div>' : '' }}\n  <p style=\"line-height:1.8;font-size:15px\">{{ $json.output.replace(/[—–]/g, ' - ').replace(/(?<!\\d)(?:[1-6]\\.\\s+)?\\*{0,2}(Trigger Event|Account Context|Opening Hypothesis|Stage-Designated Action|Buying Group Indicator|Signal Return)\\*{0,2}:?\\*{0,2}/g, '<br><br><strong>$1:</strong>').replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>').replace(/^(<br><br>)/, '') }}</p>\n  {{ $('Loop Over Items').first().json.when_the_catch ? '<div style=\"background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px 14px;margin:16px 0\"><div style=\"font-weight:bold;color:#b45309;font-size:13px;margin-bottom:4px\">&#9888; The Catch</div><div style=\"font-size:14px;line-height:1.6\">' + $('Loop Over Items').first().json.when_the_catch + '</div></div>' : '' }}\n  {{ $('Loop Over Items').first().json.when_whats_at_stake ? '<div style=\"margin:16px 0\"><div style=\"font-weight:bold;color:#1f2937;font-size:13px;margin-bottom:6px\">What&#39;s at stake</div><ul style=\"font-size:14px;line-height:1.7;margin:0;padding-left:20px\">' + String($('Loop Over Items').first().json.when_whats_at_stake).split(' | ').map(function(s){ return '<li>' + s + '</li>'; }).join('') + '</ul></div>' : '' }}\n  {{ ($('Loop Over Items').first().json.signal_sources || []).length ? '<div style=\"margin:16px 0 0\"><div style=\"font-weight:bold;color:#1f2937;font-size:13px;margin-bottom:6px\">Sources</div><ul style=\"font-size:13px;line-height:1.6;margin:0;padding-left:20px\">' + ($('Loop Over Items').first().json.signal_sources).map(function(s){ return '<li><a href=\"' + s.url + '\" style=\"color:#2563eb\">' + s.label + '</a></li>'; }).join('') + '</ul></div>' : '' }}\n</body> </html>"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2848,
+        448
+      ],
+      "id": "35cd96ee-645c-4753-a733-5243eb5e0c0f",
+      "name": "HTML Builder"
     },
-    "columns": {
-     "value": {
-      "phase": "brief_generation",
-      "company": "={{ $json.input_data }}",
-      "resolved": false,
-      "error_msg": "={{ $json.error_message }}",
-      "node_name": "={{ $json.node_name }}",
-      "occurred_at": "={{ $json.timestamp }}"
-     },
-     "schema": [
-      {
-       "id": "id",
-       "type": "number",
-       "display": true,
-       "removed": true,
-       "required": false,
-       "displayName": "id",
-       "defaultMatch": true,
-       "canBeUsedToMatch": true
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "delivery-layer",
+        "options": {}
       },
-      {
-       "id": "occurred_at",
-       "type": "dateTime",
-       "display": true,
-       "required": false,
-       "displayName": "occurred_at",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "company",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "company",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "phase",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "phase",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "node_name",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "node_name",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "error_msg",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "error_msg",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      },
-      {
-       "id": "resolved",
-       "type": "boolean",
-       "display": true,
-       "required": false,
-       "displayName": "resolved",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
-      }
-     ],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [
-      "id"
-     ],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -4688,
+        464
+      ],
+      "id": "8e77adf6-f01d-48e6-8593-468a28156927",
+      "name": "Webhook",
+      "webhookId": "51ccc21c-8b9e-4e90-94fc-dabaf1ae0079"
     },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+    {
+      "parameters": {
+        "errorMessage": "Pipeline rejected: missing company field"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        -3952,
+        768
+      ],
+      "id": "29b01a63-dcad-45f7-88c4-777aa2257357",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "76a23f01-f6aa-46eb-984f-5da1914d84a9",
+              "leftValue": "={{ $json.company }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -4080,
+        464
+      ],
+      "id": "f1c24cc4-28fd-4031-8368-731f4fb8fd82",
+      "name": "Validate Company"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a9c0b258-8bbf-459a-9099-943418ac9b60",
+              "leftValue": "={{ $json.buyingGroup }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3840,
+        464
+      ],
+      "id": "8ce0b929-07f8-4dcf-be8f-5ed9b00139da",
+      "name": "Validate BuyingGroup"
+    },
+    {
+      "parameters": {
+        "errorMessage": "Pipeline rejected: missing buyingGroup"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        -3712,
+        768
+      ],
+      "id": "a7eb65b4-5762-4013-88d7-b4f092332e11",
+      "name": "Stop and Error1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a26ce4a8-6543-41b9-a994-4241c57520a1",
+              "name": "node_name",
+              "value": "B2B Sales Brief Writer",
+              "type": "string"
+            },
+            {
+              "id": "ba9aeb0e-a9d0-4e61-93a0-668a98817a1b",
+              "name": "error_message",
+              "value": "={{ $json.error.message }}",
+              "type": "string"
+            },
+            {
+              "id": "05c128a7-0921-4e8c-b352-1abd22008e27",
+              "name": "timestamp",
+              "value": "={{ $now }}",
+              "type": "string"
+            },
+            {
+              "id": "ed147fef-44a0-46fd-bf99-6391b2be5436",
+              "name": "input_data",
+              "value": "={{ $('Loop Over Items').first().json.company }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2848,
+        736
+      ],
+      "id": "154a1380-ebe0-43e2-9270-6783d0848d6f",
+      "name": "Edit Fields4"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "pipeline_errors",
+          "mode": "list",
+          "cachedResultName": "pipeline_errors"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "resolved": false,
+            "company": "={{ $json.input_data }}",
+            "node_name": "={{ $json.node_name }}",
+            "error_msg": "={{ $json.error_message }}",
+            "occurred_at": "={{ $json.timestamp }}",
+            "phase": "brief_generation"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "occurred_at",
+              "displayName": "occurred_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phase",
+              "displayName": "phase",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "node_name",
+              "displayName": "node_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_msg",
+              "displayName": "error_msg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolved",
+              "displayName": "resolved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2656,
+        736
+      ],
+      "id": "18a745f9-58f9-4237-aa2c-41451013ed63",
+      "name": "Insert rows in a table6"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ ($('Get Ops Alert Email').first().json.ops_email || '').trim() || 'honlamchia@gmail.com' }}",
+        "subject": "=⚠️ Pipeline Failure: {{ $('Insert rows in a table6').first().json.phase }} stage — {{ $('Insert rows in a table6').first().json.company }}",
+        "message": "=Pipeline Failure Alert ──────────────────────────────  Company:     {{ $('Insert rows in a table6').first().json.company }}  Failed Stage: {{ $('Insert rows in a table6').first().json.phase }} Failed Node:  {{ $('Insert rows in a table6').first().json.node_name }} Timestamp:  {{ $('Insert rows in a table6').first().json.occurred_at }}  Error Message: {{ $('Insert rows in a table6').first().json.error_msg }} ────────────────────────────── Action Required: Please check the n8n execution log and pipeline_errors  table for full details.  Execution ID: {{ $execution.id }}",
+        "options": {},
+        "resource": "message",
+        "operation": "send"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2464,
+        736
+      ],
+      "id": "87d55878-8d91-4652-ada2-7d9937465eca",
+      "name": "Send a message4",
+      "webhookId": "4d598d79-f13c-46a0-80b6-fea4b6e25337",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
+        "subject": "=👀 Approval Needed — {{ $json.company }}",
+        "message": "=Sales Brief Ready for Review — {{ $json.company }}\n\nScore: {{ $json.gate1_score }}/{{ $json.gate1_threshold }} | Confidence: {{ $json.gate1_confidence }}\n\nBrief: {{ $json.brief_s3_url }}\n\n──────────────────────────────\n✅ APPROVE:\n{{ $json.approveUrl }}\n\n❌ REJECT:\n{{ $json.rejectUrl }}\n──────────────────────────────",
+        "options": {},
+        "resource": "message",
+        "operation": "send"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1680,
+        448
+      ],
+      "id": "88b5d5a2-f1df-41bd-8dfc-6466d038cf74",
+      "name": "Approval Email",
+      "webhookId": "ef0a2ce6-84ad-4fde-8c73-530586807c9d",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format Adapter\n// Handles three schemas:\n//   - Jocelyn (WHEN Layer): has meta.engine === \"WHEN Layer Intelligence Engine\"\n//   - Tabita (CaP context): has account_id + context_status\n//   - Pipeline native: has company + buyingGroup directly\n\nreturn $input.all().map(item => {\n  const data = item.json;\n\n  if (data.meta && data.meta.engine === \"WHEN Layer Intelligence Engine\") {\n    const accountSignals = data.signals || [];\n    const firstSignal = accountSignals[0] || {};\n\n    const buyingGroup = (data.buying_group || []).map(member => {\n      const status = (member.status || \"\").toString().toUpperCase();\n      const isConfirmed = status === \"COMPLETE\" || status === \"CONFIRMED\";\n      return {\n        contactName: member.name,\n        jobTitle: member.title,\n        signals: isConfirmed ? accountSignals.map(s => ({ type: s.type, date: s.date })) : [],\n        negativeSignals: []\n      };\n    });\n\n    const unenriched = (data.buying_group || []).filter(m => {\n      const s = (m.status || \"\").toString().toUpperCase();\n      return s !== \"COMPLETE\" && s !== \"CONFIRMED\";\n    });\n    const enrichmentNeeded = unenriched.length > 0;\n    const unenrichedRoles = unenriched.map(m => m.name + (m.focus_area ? \" (\" + m.focus_area + \")\" : \"\")).join(\", \");\n\n    return {\n      json: {\n        company: data.account.name,\n        companySize: null,\n        triggerEvent: {\n          eventType: firstSignal.type || \"Structural Trigger\",\n          description: firstSignal.description || data.posture?.headline || \"\",\n          category: data.account.theme,\n          isActionable: data.posture?.urgency !== \"MONITOR\"\n        },\n        buyingGroup,\n        when_open_with:    data.outreach?.open_with || null,\n        when_action:       data.outreach?.action || null,\n        when_stage:        data.posture?.gate_3 || data.posture?.stage || null,\n        when_urgency:      data.posture?.urgency || null,\n        when_window_close: data.change_triggers?.window_close_date || null,\n        when_whats_at_stake: (data.whats_at_stake || []).map(w => w.role + \": \" + w.statement).join(\" | \") || null,\n        when_the_move:       data.element_4?.the_move || null,\n        when_the_catch:      data.element_4?.the_catch || null,\n        when_your_edge:      data.element_4?.your_edge || null,\n        when_first_step:     data.element_4?.first_step || null,\n        when_campaign_stage: data.outreach?.campaign_stage || null,\n        when_belief_shift:   data.outreach?.belief_shift_objective || null,\n        posture_detail:    data.posture?.detail || null,\n        supporting_signals: data.element_4?.supporting_signals || [],\n        signal_sources:    (data.signals || []).filter(s => s.source_url).map(s => ({ label: s.source_label || s.type || \"source\", url: s.source_url })),\n        industry:          data.account?.industry || null,\n        theme:             data.account?.theme || null,\n        trigger_notes:     data.change_triggers?.notes || null,\n        enrichmentNeeded:  enrichmentNeeded,\n        unenrichedRoles:   unenrichedRoles,\n        _source: \"jocelyn\",\n        _raw: data\n      }\n    };\n  }\n\n  if (data.account_id && data.context_status) {\n    const identity     = data.background?.identity || {};\n    const facts        = data.background?.structural_facts || [];\n    const hypothesis   = data.background?.operational_hypothesis || {};\n    const primaryFact  = facts.find(f => f.type === \"A\") || facts[0] || {};\n    const highTensions = (data.tensions || []).filter(t => t.level === \"HIGH\");\n    const type1Gaps    = data.gaps?.type_1 || [];\n\n    let buyingGroup = (data.stakeholder_map?.buying_committee || []).map(member => ({\n      contactName: member.name || member.contactName,\n      jobTitle:    member.title || member.jobTitle,\n      signals:     [],\n      negativeSignals: highTensions.map(t => ({ type: \"high_tension\", date: new Date().toISOString().split(\"T\")[0], description: t.conflict }))\n    }));\n\n    if (buyingGroup.length === 0) {\n      buyingGroup = [{ contactName: \"Unknown - see Type I gaps\", jobTitle: type1Gaps.map(g => g.gap).join(\" | \") || \"TBD\", signals: [], negativeSignals: highTensions.map(t => ({ type: \"high_tension\", date: new Date().toISOString().split(\"T\")[0], description: t.conflict })) }];\n    }\n\n    return {\n      json: {\n        company:     identity.company || data.account_id,\n        companySize: null,\n        triggerEvent: { eventType: primaryFact.event || \"Structural Event\", description: hypothesis.statement || primaryFact.event || \"\", category: identity.industry || \"Unknown\", isActionable: type1Gaps.length === 0 },\n        buyingGroup,\n        cap_confidence_floor:    data.confidence_floor,\n        cap_primary_archetype:   data.pattern?.primary_archetype || null,\n        cap_secondary_archetype: data.pattern?.secondary_archetype || null,\n        cap_context_status:      data.context_status,\n        cap_type1_gap_count:     type1Gaps.length,\n        cap_high_tension_count:  highTensions.length,\n        _source: \"tabita\",\n        _raw: data\n      }\n    };\n  }\n\n  return { json: { ...data, _source: \"direct\", _raw: data } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4256,
+        464
+      ],
+      "id": "eba02f5f-c178-4cee-a888-c4cf384887fa",
+      "name": "Format Adapter"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "06daceaf-cf0a-41f5-babe-28fffea7dd4d",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -3408,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accept payload whether it arrives via webhook (nested under .body) or manual/direct (flat).\nreturn $input.all().map(i => ({ json: (i.json && i.json.body && typeof i.json.body === 'object') ? i.json.body : i.json }));"
+      },
+      "id": "fabbf309-508b-4906-af3d-fd1d2e4798b8",
+      "name": "Unwrap Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4480,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`brief:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst item = { ...$('Insert rows in a table').item.json };\nconst id = item.id;\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/brief-approval';\nitem.approveUrl = `${base}?id=${id}&action=approve&sig=${sign(id, 'approve')}`;\nitem.rejectUrl  = `${base}?id=${id}&action=reject&sig=${sign(id, 'reject')}`;\nreturn [{ json: item }];"
+      },
+      "id": "2abcceee-5fbc-4659-8c82-c9670fa5d292",
+      "name": "Sign Brief Links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1872,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select (select value from app_config where key='approval_hmac_secret') as value,\n       coalesce(nullif((select value from app_config where key='rep_notification_email'),''), 'rep-not-set@example.com') as rep_email;",
+        "options": {}
+      },
+      "id": "3207c4dd-5f2e-4dc4-9ce9-bc7000059196",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2032,
+        448
+      ]
+    },
+    {
+      "id": "e88451be-4472-42d6-a072-54d6d8d9db83",
+      "name": "Get Ops Alert Email",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2560,
+        912
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select coalesce(nullif((select value from app_config where key='ops_alert_email'),''), 'honlamchia@gmail.com') as ops_email;",
+        "options": {}
+      },
+      "notes": "Resolves the ops/failure alert recipient from app_config.ops_alert_email so it is configurable from the dashboard Settings tab instead of hardcoded in the Gmail node."
     }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "87d55878-8d91-4652-ada2-7d9937465eca",
-   "name": "Send a message4",
-   "type": "n8n-nodes-base.gmail",
-   "disabled": true,
-   "maxTries": 3,
-   "position": [
-    -2448,
-    848
-   ],
-   "webhookId": "4d598d79-f13c-46a0-80b6-fea4b6e25337",
-   "parameters": {
-    "sendTo": "honlamchia@gmail.com",
-    "message": "=Pipeline Failure Alert ──────────────────────────────  Company:     {{ $json.company }}  Failed Stage: {{ $json.phase }} Failed Node:  {{ $json.node_name }} Timestamp:  {{ $json.occurred_at }}  Error Message: {{ $json.error_msg }} ────────────────────────────── Action Required: Please check the n8n execution log and pipeline_errors  table for full details.  Execution ID: {{ $execution.id }}",
-    "options": {},
-    "subject": "=⚠️ Pipeline Failure: {{ $json.phase }} stage — {{ $json.company }}"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
+  ],
+  "connections": {
+    "Format Adapter": {
+      "main": [
+        [
+          {
+            "node": "Validate Company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Company": {
+      "main": [
+        [
+          {
+            "node": "Validate BuyingGroup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate BuyingGroup": {
+      "main": [
+        [
+          {
+            "node": "Parse Input Code",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "B2B Sales Brief Writer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B2B Sales Brief Writer": {
+      "main": [
+        [
+          {
+            "node": "HTML Builder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML Builder": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload a file": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields4": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Input Code": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        null,
+        [
+          {
+            "node": "B2B Sales Brief Writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Email": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message4": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Unwrap Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Unwrap Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unwrap Body": {
+      "main": [
+        [
+          {
+            "node": "Format Adapter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Brief Links": {
+      "main": [
+        [
+          {
+            "node": "Approval Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Sign Brief Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table6": {
+      "main": [
+        [
+          {
+            "node": "Get Ops Alert Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Ops Alert Email": {
+      "main": [
+        [
+          {
+            "node": "Send a message4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "retryOnFail": true,
-   "typeVersion": 2.2,
-   "waitBetweenTries": 2000
   },
-  {
-   "id": "88b5d5a2-f1df-41bd-8dfc-6466d038cf74",
-   "name": "Approval Email",
-   "type": "n8n-nodes-base.gmail",
-   "maxTries": 3,
-   "position": [
-    -1536,
-    448
-   ],
-   "webhookId": "ef0a2ce6-84ad-4fde-8c73-530586807c9d",
-   "parameters": {
-    "sendTo": "honlamchia@gmail.com",
-    "message": "=Sales Brief Ready for Review — {{ $json.company }}\n\nScore: {{ $json.gate1_score }}/{{ $json.gate1_threshold }} | Confidence: {{ $json.gate1_confidence }}\n\nBrief: {{ $json.brief_s3_url }}\n\n──────────────────────────────\n✅ APPROVE:\n{{ $json.approveUrl }}\n\n❌ REJECT:\n{{ $json.rejectUrl }}\n──────────────────────────────",
-    "options": {},
-    "subject": "=👀 Approval Needed — {{ $json.company }}"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 2.2,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "eba02f5f-c178-4cee-a888-c4cf384887fa",
-   "name": "Format Adapter",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    -4256,
-    464
-   ],
-   "parameters": {
-    "jsCode": "// Format Adapter\n// Handles three schemas:\n//   - Jocelyn (WHEN Layer): has meta.engine === \"WHEN Layer Intelligence Engine\"\n//   - Tabita (CaP context): has account_id + context_status\n//   - Pipeline native: has company + buyingGroup directly\n\nreturn $input.all().map(item => {\n  const data = item.json;\n\n  if (data.meta && data.meta.engine === \"WHEN Layer Intelligence Engine\") {\n    const accountSignals = data.signals || [];\n    const firstSignal = accountSignals[0] || {};\n\n    const buyingGroup = (data.buying_group || []).map(member => {\n      const status = (member.status || \"\").toString().toUpperCase();\n      const isConfirmed = status === \"COMPLETE\" || status === \"CONFIRMED\";\n      return {\n        contactName: member.name,\n        jobTitle: member.title,\n        signals: isConfirmed ? accountSignals.map(s => ({ type: s.type, date: s.date })) : [],\n        negativeSignals: []\n      };\n    });\n\n    const unenriched = (data.buying_group || []).filter(m => {\n      const s = (m.status || \"\").toString().toUpperCase();\n      return s !== \"COMPLETE\" && s !== \"CONFIRMED\";\n    });\n    const enrichmentNeeded = unenriched.length > 0;\n    const unenrichedRoles = unenriched.map(m => m.name + (m.focus_area ? \" (\" + m.focus_area + \")\" : \"\")).join(\", \");\n\n    return {\n      json: {\n        company: data.account.name,\n        companySize: null,\n        triggerEvent: {\n          eventType: firstSignal.type || \"Structural Trigger\",\n          description: firstSignal.description || data.posture?.headline || \"\",\n          category: data.account.theme,\n          isActionable: data.posture?.urgency !== \"MONITOR\"\n        },\n        buyingGroup,\n        when_open_with:    data.outreach?.open_with || null,\n        when_action:       data.outreach?.action || null,\n        when_stage:        data.posture?.gate_3 || data.posture?.stage || null,\n        when_urgency:      data.posture?.urgency || null,\n        when_window_close: data.change_triggers?.window_close_date || null,\n        when_whats_at_stake: (data.whats_at_stake || []).map(w => w.role + \": \" + w.statement).join(\" | \") || null,\n        when_the_move:       data.element_4?.the_move || null,\n        when_the_catch:      data.element_4?.the_catch || null,\n        when_your_edge:      data.element_4?.your_edge || null,\n        when_first_step:     data.element_4?.first_step || null,\n        when_campaign_stage: data.outreach?.campaign_stage || null,\n        when_belief_shift:   data.outreach?.belief_shift_objective || null,\n        posture_detail:    data.posture?.detail || null,\n        supporting_signals: data.element_4?.supporting_signals || [],\n        signal_sources:    (data.signals || []).filter(s => s.source_url).map(s => ({ label: s.source_label || s.type || \"source\", url: s.source_url })),\n        industry:          data.account?.industry || null,\n        theme:             data.account?.theme || null,\n        trigger_notes:     data.change_triggers?.notes || null,\n        enrichmentNeeded:  enrichmentNeeded,\n        unenrichedRoles:   unenrichedRoles,\n        _source: \"jocelyn\",\n        _raw: data\n      }\n    };\n  }\n\n  if (data.account_id && data.context_status) {\n    const identity     = data.background?.identity || {};\n    const facts        = data.background?.structural_facts || [];\n    const hypothesis   = data.background?.operational_hypothesis || {};\n    const primaryFact  = facts.find(f => f.type === \"A\") || facts[0] || {};\n    const highTensions = (data.tensions || []).filter(t => t.level === \"HIGH\");\n    const type1Gaps    = data.gaps?.type_1 || [];\n\n    let buyingGroup = (data.stakeholder_map?.buying_committee || []).map(member => ({\n      contactName: member.name || member.contactName,\n      jobTitle:    member.title || member.jobTitle,\n      signals:     [],\n      negativeSignals: highTensions.map(t => ({ type: \"high_tension\", date: new Date().toISOString().split(\"T\")[0], description: t.conflict }))\n    }));\n\n    if (buyingGroup.length === 0) {\n      buyingGroup = [{ contactName: \"Unknown - see Type I gaps\", jobTitle: type1Gaps.map(g => g.gap).join(\" | \") || \"TBD\", signals: [], negativeSignals: highTensions.map(t => ({ type: \"high_tension\", date: new Date().toISOString().split(\"T\")[0], description: t.conflict })) }];\n    }\n\n    return {\n      json: {\n        company:     identity.company || data.account_id,\n        companySize: null,\n        triggerEvent: { eventType: primaryFact.event || \"Structural Event\", description: hypothesis.statement || primaryFact.event || \"\", category: identity.industry || \"Unknown\", isActionable: type1Gaps.length === 0 },\n        buyingGroup,\n        cap_confidence_floor:    data.confidence_floor,\n        cap_primary_archetype:   data.pattern?.primary_archetype || null,\n        cap_secondary_archetype: data.pattern?.secondary_archetype || null,\n        cap_context_status:      data.context_status,\n        cap_type1_gap_count:     type1Gaps.length,\n        cap_high_tension_count:  highTensions.length,\n        _source: \"tabita\",\n        _raw: data\n      }\n    };\n  }\n\n  return { json: { ...data, _source: \"direct\", _raw: data } };\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "06daceaf-cf0a-41f5-babe-28fffea7dd4d",
-   "name": "Loop Over Items",
-   "type": "n8n-nodes-base.splitInBatches",
-   "position": [
-    -3408,
-    448
-   ],
-   "parameters": {
-    "options": {}
-   },
-   "typeVersion": 3
-  },
-  {
-   "id": "fabbf309-508b-4906-af3d-fd1d2e4798b8",
-   "name": "Unwrap Body",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    -4480,
-    464
-   ],
-   "parameters": {
-    "jsCode": "// Accept payload whether it arrives via webhook (nested under .body) or manual/direct (flat).\nreturn $input.all().map(i => ({ json: (i.json && i.json.body && typeof i.json.body === 'object') ? i.json.body : i.json }));"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "2abcceee-5fbc-4659-8c82-c9670fa5d292",
-   "name": "Sign Brief Links",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    -1872,
-    448
-   ],
-   "parameters": {
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`brief:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst item = { ...$('Insert rows in a table').item.json };\nconst id = item.id;\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/brief-approval';\nitem.approveUrl = `${base}?id=${id}&action=approve&sig=${sign(id, 'approve')}`;\nitem.rejectUrl  = `${base}?id=${id}&action=reject&sig=${sign(id, 'reject')}`;\nreturn [{ json: item }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "3207c4dd-5f2e-4dc4-9ce9-bc7000059196",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    -2032,
-    448
-   ],
-   "parameters": {
-    "query": "select value from app_config where key='approval_hmac_secret';",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Webhook": {
-   "main": [
-    [
-     {
-      "node": "Unwrap Body",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Unwrap Body": {
-   "main": [
-    [
-     {
-      "node": "Format Adapter",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Edit Fields1": {
-   "main": [
-    [
-     {
-      "node": "Insert rows in a table",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Edit Fields4": {
-   "main": [
-    [
-     {
-      "node": "Insert rows in a table6",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "HTML Builder": {
-   "main": [
-    [
-     {
-      "node": "Upload a file",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Upload a file": {
-   "main": [
-    [
-     {
-      "node": "Edit Fields1",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Approval Email": {
-   "main": [
-    [
-     {
-      "node": "Loop Over Items",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Format Adapter": {
-   "main": [
-    [
-     {
-      "node": "Validate Company",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Sign Brief Links",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Loop Over Items": {
-   "main": [
-    null,
-    [
-     {
-      "node": "B2B Sales Brief Writer",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Send a message4": {
-   "main": [
-    [
-     {
-      "node": "Loop Over Items",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Parse Input Code": {
-   "main": [
-    [
-     {
-      "node": "Loop Over Items",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Sign Brief Links": {
-   "main": [
-    [
-     {
-      "node": "Approval Email",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Validate Company": {
-   "main": [
-    [
-     {
-      "node": "Validate BuyingGroup",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Stop and Error",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "OpenAI Chat Model3": {
-   "ai_languageModel": [
-    [
-     {
-      "node": "B2B Sales Brief Writer",
-      "type": "ai_languageModel",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Validate BuyingGroup": {
-   "main": [
-    [
-     {
-      "node": "Parse Input Code",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Stop and Error1",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "B2B Sales Brief Writer": {
-   "main": [
-    [
-     {
-      "node": "HTML Builder",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Edit Fields4",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert rows in a table": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert rows in a table6": {
-   "main": [
-    [
-     {
-      "node": "Send a message4",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "When clicking ‘Execute workflow’": {
-   "main": [
-    [
-     {
-      "node": "Unwrap Body",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "HQdvWtRfLdzDTN3X",
-  "activeAtExport": true
- }
 }

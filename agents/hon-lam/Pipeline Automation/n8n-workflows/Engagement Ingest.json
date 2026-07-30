@@ -1,147 +1,135 @@
 {
- "name": "Engagement Ingest",
- "nodes": [
-  {
-   "id": "b6ed2d81-106a-40ef-b11b-027394ff9e3a",
-   "name": "Webhook",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    0
-   ],
-   "webhookId": "63d9b6b3-631a-420c-9133-260ba511ac62",
-   "parameters": {
-    "path": "engagement",
-    "options": {},
-    "httpMethod": "POST"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "a30b9bf1-1595-46a4-8dc6-63c252b003fe",
-   "name": "Normalize",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    224,
-    0
-   ],
-   "parameters": {
-    "jsCode": "// Accepts BOTH: POST JSON body (quick-log, Calendly feeder, My Day widget)\n// and GET query params (one-click \"log outcome\" links in the daily digest).\nconst q = ($json.query && typeof $json.query === 'object') ? $json.query : {};\nconst hasBody = $json.body && typeof $json.body === 'object' && Object.keys($json.body).length > 0;\nconst b = hasBody ? $json.body : (Object.keys(q).length ? q : $json);\nlet metadata = null;\nif (b.metadata && typeof b.metadata === 'object') metadata = b.metadata;\nelse if (b.note) metadata = { note: String(b.note).slice(0, 300), logged_via: 'digest_link' };\nelse if (!hasBody && Object.keys(q).length) metadata = { logged_via: 'digest_link' };\nreturn [{ json: {\n  account: b.account || null,\n  contact: b.contact || null,\n  source: b.source || null,\n  event_type: b.event_type || null,\n  campaign: b.utm_campaign || b.campaign || null,\n  action_id: (b.action_id != null && b.action_id !== '' ? Number(b.action_id) : null),\n  value: (b.value != null && b.value !== '' ? Number(b.value) : (hasBody ? null : 1)),\n  occurred_at: b.occurred_at || new Date().toISOString(),\n  metadata\n} }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "40911d9d-38fa-46e4-94e9-c8c2c913a748",
-   "name": "Insert Event",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    448,
-    0
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "engagement_events"
+  "name": "Engagement Ingest",
+  "nodes": [
+    {
+      "id": "b6ed2d81-106a-40ef-b11b-027394ff9e3a",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "engagement",
+        "options": {}
+      },
+      "webhookId": "63d9b6b3-631a-420c-9133-260ba511ac62"
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
+    {
+      "id": "a30b9bf1-1595-46a4-8dc6-63c252b003fe",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Accepts BOTH: POST JSON body (quick-log, Calendly feeder, My Day widget)\n// and GET query params (one-click \"log outcome\" links in the daily digest).\nconst q = ($json.query && typeof $json.query === 'object') ? $json.query : {};\nconst hasBody = $json.body && typeof $json.body === 'object' && Object.keys($json.body).length > 0;\nconst b = hasBody ? $json.body : (Object.keys(q).length ? q : $json);\nlet metadata = null;\nif (b.metadata && typeof b.metadata === 'object') metadata = b.metadata;\nelse if (b.note) metadata = { note: String(b.note).slice(0, 300), logged_via: 'digest_link' };\nelse if (!hasBody && Object.keys(q).length) metadata = { logged_via: 'digest_link' };\nreturn [{ json: {\n  account: b.account || null,\n  contact: b.contact || null,\n  source: b.source || null,\n  event_type: b.event_type || null,\n  campaign: b.utm_campaign || b.campaign || null,\n  action_id: (b.action_id != null && b.action_id !== '' ? Number(b.action_id) : null),\n  value: (b.value != null && b.value !== '' ? Number(b.value) : (hasBody ? null : 1)),\n  occurred_at: b.occurred_at || new Date().toISOString(),\n  metadata\n} }];"
+      }
     },
-    "columns": {
-     "value": {
-      "value": "={{ $json.value }}",
-      "source": "={{ $json.source }}",
-      "account": "={{ $json.account }}",
-      "contact": "={{ $json.contact }}",
-      "campaign": "={{ $json.campaign }}",
-      "metadata": "={{ $json.metadata }}",
-      "action_id": "={{ $json.action_id }}",
-      "event_type": "={{ $json.event_type }}",
-      "occurred_at": "={{ $json.occurred_at }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": []
+    {
+      "id": "40911d9d-38fa-46e4-94e9-c8c2c913a748",
+      "name": "Insert Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "engagement_events"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "account": "={{ $json.account }}",
+            "contact": "={{ $json.contact }}",
+            "source": "={{ $json.source }}",
+            "event_type": "={{ $json.event_type }}",
+            "campaign": "={{ $json.campaign }}",
+            "action_id": "={{ $json.action_id }}",
+            "value": "={{ $json.value }}",
+            "occurred_at": "={{ $json.occurred_at }}",
+            "metadata": "={{ $json.metadata }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
     },
-    "options": {},
-    "operation": "insert"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+    {
+      "id": "b637a550-0d94-4481-a41a-0d45cd8c877b",
+      "name": "Webhook (GET link)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "engagement",
+        "options": {
+          "responseData": "✓ Outcome logged — the next daily measurement run will pick it up. You can close this tab."
+        }
+      },
+      "webhookId": "e2cff1f7-8390-441d-8667-e234c8849ea3"
     }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "b637a550-0d94-4481-a41a-0d45cd8c877b",
-   "name": "Webhook (GET link)",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    192
-   ],
-   "webhookId": "e2cff1f7-8390-441d-8667-e234c8849ea3",
-   "parameters": {
-    "path": "engagement",
-    "options": {
-     "responseData": "✓ Outcome logged — the next daily measurement run will pick it up. You can close this tab."
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "httpMethod": "GET"
-   },
-   "typeVersion": 2.1
-  }
- ],
- "connections": {
-  "Webhook": {
-   "main": [
-    [
-     {
-      "node": "Normalize",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Insert Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (GET link)": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "Normalize": {
-   "main": [
-    [
-     {
-      "node": "Insert Event",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Webhook (GET link)": {
-   "main": [
-    [
-     {
-      "node": "Normalize",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "fsPZuAbWdQb16kXm",
-  "activeAtExport": true
- }
 }

@@ -1,94 +1,82 @@
 {
- "name": "LinkedIn -> Engagement",
- "nodes": [
-  {
-   "id": "c2e9fc66-b9ab-40fb-9ca3-92f107c75a30",
-   "name": "LinkedIn Webhook",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    0
-   ],
-   "webhookId": "ffec620a-7cc5-4038-80d7-1bd0900ca273",
-   "parameters": {
-    "path": "linkedin",
-    "options": {},
-    "httpMethod": "POST"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "d0b977da-eea4-43d8-902a-73203de6e031",
-   "name": "Map LinkedIn",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    224,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst MAP = {\n  connection_accepted:'linkedin_accept', invite_accepted:'linkedin_accept', connectionaccepted:'linkedin_accept', accepted:'linkedin_accept', linkedin_accept:'linkedin_accept', connection_request_accepted:'linkedin_accept',\n  reply:'linkedin_reply', message_reply:'linkedin_reply', replied:'linkedin_reply', new_reply:'linkedin_reply', inmail_reply:'linkedin_reply', message_received:'linkedin_reply', linkedin_reply:'linkedin_reply', message_reply_received:'linkedin_reply', inmail_reply_received:'linkedin_reply', every_message_inmail_reply_received:'linkedin_reply', reply_received:'linkedin_reply',\n  profile_view:'linkedin_profile_view', profile_visit:'linkedin_profile_view', profileview:'linkedin_profile_view', linkedin_profile_view:'linkedin_profile_view', viewed_profile:'linkedin_profile_view',\n  post_engagement:'linkedin_post_engage', reaction:'linkedin_post_engage', like:'linkedin_post_engage', comment:'linkedin_post_engage', post_engage:'linkedin_post_engage', linkedin_post_engage:'linkedin_post_engage', liked_post:'linkedin_post_engage', post_liked:'linkedin_post_engage'\n};\nconst nameOf = (o) => {\n  if (!o) return '';\n  if (typeof o === 'string') return o;\n  if (typeof o === 'object') return o.name || o.fullName || o.full_name || [o.firstName || o.first_name, o.lastName || o.last_name].filter(Boolean).join(' ') || o.profileUrl || o.profile_url || '';\n  return '';\n};\nconst campaignOf = (c) => {\n  if (!c) return '';\n  if (typeof c === 'string') return c;\n  if (typeof c === 'object') return c.utm_campaign || c.name || '';\n  return '';\n};\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const b = (j.body && typeof j.body === 'object') ? j.body : j;\n  const events = Array.isArray(b) ? b : (Array.isArray(b.events) ? b.events : [b]);\n  for (const ev of events) {\n    if (!ev || typeof ev !== 'object') continue;\n    const raw = String(ev.event_type || ev.event || ev.type || ev.eventType || ev.webhookEventType || '').trim().toLowerCase().replace(/[\\s\\/.-]+/g, '_');\n    const et = MAP[raw];\n    if (!et) continue;\n    const campaign = ev.utm_campaign || campaignOf(ev.campaign) || ev.campaign_name || ev.campaignName || (ev.tracking && ev.tracking.utm_campaign) || '';\n    const account = ev.account || (ev.lead && (ev.lead.companyName || ev.lead.company)) || '';\n    const contact = ev.contact || ev.name || ev.full_name || ev.prospect || nameOf(ev.lead) || nameOf(ev.correspondent) || '';\n    const eventId = ev.event_id || ev.id || ev.activity_id || ev.webhookEventId || '';\n    const occurred = ev.occurred_at || ev.timestamp || ev.created_at || ev.createdAt || ev.time || new Date().toISOString();\n    const value = (ev.value != null && ev.value !== '') ? Number(ev.value) : 1;\n    const meta = { linkedin_event_id: String(eventId), raw_event: String(ev.event_type || ev.event || ev.type || ev.eventType || ev.webhookEventType || ''), tool: String(ev.tool || ev.source || 'linkedin') };\n    if (ev.headline) meta.headline = String(ev.headline).slice(0, 200);\n    const msg = ev.message || ev.reply_body || ev.messageText || (ev.reply && ev.reply.text) || '';\n    if (et === 'linkedin_reply' && msg) meta.reply_snippet = String(msg).slice(0, 200);\n    const profileUrl = (ev.lead && (ev.lead.profileUrl || ev.lead.profile_url)) || ev.profileUrl || ev.profile_url || '';\n    if (profileUrl) meta.profile_url = String(profileUrl).slice(0, 300);\n    out.push({ json: {\n      account_esc: esc(account),\n      contact_esc: esc(contact),\n      campaign_esc: esc(campaign),\n      event_type: et,\n      event_id_esc: esc(eventId),\n      value: Number.isFinite(value) ? value : 1,\n      occurred_esc: esc(occurred),\n      metadata_esc: esc(JSON.stringify(meta))\n    } });\n  }\n}\nreturn out;"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "c7056a57-23be-46ab-8ef8-6101dabceee0",
-   "name": "Insert LinkedIn Event",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    448,
-    0
-   ],
-   "parameters": {
-    "query": "=INSERT INTO engagement_events (account, contact, source, event_type, campaign, value, occurred_at, metadata) SELECT COALESCE((SELECT a.account FROM actions a WHERE a.utm_campaign = '{{ $json.campaign_esc }}' AND '{{ $json.campaign_esc }}' <> '' LIMIT 1), NULLIF('{{ $json.account_esc }}',''), 'unknown'), NULLIF('{{ $json.contact_esc }}',''), 'linkedin', '{{ $json.event_type }}', NULLIF('{{ $json.campaign_esc }}',''), {{ $json.value }}, '{{ $json.occurred_esc }}'::timestamptz, '{{ $json.metadata_esc }}'::jsonb WHERE NOT EXISTS (SELECT 1 FROM engagement_events e WHERE e.source = 'linkedin' AND ((NULLIF('{{ $json.event_id_esc }}','') IS NOT NULL AND e.metadata->>'linkedin_event_id' = '{{ $json.event_id_esc }}') OR (NULLIF('{{ $json.event_id_esc }}','') IS NULL AND e.event_type = '{{ $json.event_type }}' AND COALESCE(e.campaign,'') = '{{ $json.campaign_esc }}' AND COALESCE(e.contact,'') = '{{ $json.contact_esc }}' AND e.occurred_at = '{{ $json.occurred_esc }}'::timestamptz))) ON CONFLICT DO NOTHING;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+  "name": "LinkedIn -> Engagement",
+  "nodes": [
+    {
+      "id": "c2e9fc66-b9ab-40fb-9ca3-92f107c75a30",
+      "name": "LinkedIn Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin",
+        "options": {}
+      },
+      "webhookId": "ffec620a-7cc5-4038-80d7-1bd0900ca273"
+    },
+    {
+      "id": "d0b977da-eea4-43d8-902a-73203de6e031",
+      "name": "Map LinkedIn",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst MAP = {\n  connection_accepted:'linkedin_accept', invite_accepted:'linkedin_accept', connectionaccepted:'linkedin_accept', accepted:'linkedin_accept', linkedin_accept:'linkedin_accept', connection_request_accepted:'linkedin_accept',\n  reply:'linkedin_reply', message_reply:'linkedin_reply', replied:'linkedin_reply', new_reply:'linkedin_reply', inmail_reply:'linkedin_reply', message_received:'linkedin_reply', linkedin_reply:'linkedin_reply', message_reply_received:'linkedin_reply', inmail_reply_received:'linkedin_reply', every_message_inmail_reply_received:'linkedin_reply', reply_received:'linkedin_reply',\n  profile_view:'linkedin_profile_view', profile_visit:'linkedin_profile_view', profileview:'linkedin_profile_view', linkedin_profile_view:'linkedin_profile_view', viewed_profile:'linkedin_profile_view',\n  post_engagement:'linkedin_post_engage', reaction:'linkedin_post_engage', like:'linkedin_post_engage', comment:'linkedin_post_engage', post_engage:'linkedin_post_engage', linkedin_post_engage:'linkedin_post_engage', liked_post:'linkedin_post_engage', post_liked:'linkedin_post_engage'\n};\nconst nameOf = (o) => {\n  if (!o) return '';\n  if (typeof o === 'string') return o;\n  if (typeof o === 'object') return o.name || o.fullName || o.full_name || [o.firstName || o.first_name, o.lastName || o.last_name].filter(Boolean).join(' ') || o.profileUrl || o.profile_url || '';\n  return '';\n};\nconst campaignOf = (c) => {\n  if (!c) return '';\n  if (typeof c === 'string') return c;\n  if (typeof c === 'object') return c.utm_campaign || c.name || '';\n  return '';\n};\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const b = (j.body && typeof j.body === 'object') ? j.body : j;\n  const events = Array.isArray(b) ? b : (Array.isArray(b.events) ? b.events : [b]);\n  for (const ev of events) {\n    if (!ev || typeof ev !== 'object') continue;\n    const raw = String(ev.event_type || ev.event || ev.type || ev.eventType || ev.webhookEventType || '').trim().toLowerCase().replace(/[\\s\\/.-]+/g, '_');\n    const et = MAP[raw];\n    if (!et) continue;\n    const campaign = ev.utm_campaign || campaignOf(ev.campaign) || ev.campaign_name || ev.campaignName || (ev.tracking && ev.tracking.utm_campaign) || '';\n    const account = ev.account || (ev.lead && (ev.lead.companyName || ev.lead.company)) || '';\n    const contact = ev.contact || ev.name || ev.full_name || ev.prospect || nameOf(ev.lead) || nameOf(ev.correspondent) || '';\n    const eventId = ev.event_id || ev.id || ev.activity_id || ev.webhookEventId || '';\n    const occurred = ev.occurred_at || ev.timestamp || ev.created_at || ev.createdAt || ev.time || new Date().toISOString();\n    const value = (ev.value != null && ev.value !== '') ? Number(ev.value) : 1;\n    const meta = { linkedin_event_id: String(eventId), raw_event: String(ev.event_type || ev.event || ev.type || ev.eventType || ev.webhookEventType || ''), tool: String(ev.tool || ev.source || 'linkedin') };\n    if (ev.headline) meta.headline = String(ev.headline).slice(0, 200);\n    const msg = ev.message || ev.reply_body || ev.messageText || (ev.reply && ev.reply.text) || '';\n    if (et === 'linkedin_reply' && msg) meta.reply_snippet = String(msg).slice(0, 200);\n    const profileUrl = (ev.lead && (ev.lead.profileUrl || ev.lead.profile_url)) || ev.profileUrl || ev.profile_url || '';\n    if (profileUrl) meta.profile_url = String(profileUrl).slice(0, 300);\n    out.push({ json: {\n      account_esc: esc(account),\n      contact_esc: esc(contact),\n      campaign_esc: esc(campaign),\n      event_type: et,\n      event_id_esc: esc(eventId),\n      value: Number.isFinite(value) ? value : 1,\n      occurred_esc: esc(occurred),\n      metadata_esc: esc(JSON.stringify(meta))\n    } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "c7056a57-23be-46ab-8ef8-6101dabceee0",
+      "name": "Insert LinkedIn Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO engagement_events (account, contact, source, event_type, campaign, value, occurred_at, metadata) SELECT COALESCE((SELECT a.account FROM actions a WHERE a.utm_campaign = '{{ $json.campaign_esc }}' AND '{{ $json.campaign_esc }}' <> '' LIMIT 1), NULLIF('{{ $json.account_esc }}',''), 'unknown'), NULLIF('{{ $json.contact_esc }}',''), 'linkedin', '{{ $json.event_type }}', NULLIF('{{ $json.campaign_esc }}',''), {{ $json.value }}, '{{ $json.occurred_esc }}'::timestamptz, '{{ $json.metadata_esc }}'::jsonb WHERE NOT EXISTS (SELECT 1 FROM engagement_events e WHERE e.source = 'linkedin' AND ((NULLIF('{{ $json.event_id_esc }}','') IS NOT NULL AND e.metadata->>'linkedin_event_id' = '{{ $json.event_id_esc }}') OR (NULLIF('{{ $json.event_id_esc }}','') IS NULL AND e.event_type = '{{ $json.event_type }}' AND COALESCE(e.campaign,'') = '{{ $json.campaign_esc }}' AND COALESCE(e.contact,'') = '{{ $json.contact_esc }}' AND e.occurred_at = '{{ $json.occurred_esc }}'::timestamptz))) ON CONFLICT DO NOTHING;",
+        "options": {}
+      }
     }
-   },
-   "typeVersion": 2.6
-  }
- ],
- "connections": {
-  "Map LinkedIn": {
-   "main": [
-    [
-     {
-      "node": "Insert LinkedIn Event",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+  ],
+  "connections": {
+    "LinkedIn Webhook": {
+      "main": [
+        [
+          {
+            "node": "Map LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Insert LinkedIn Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "LinkedIn Webhook": {
-   "main": [
-    [
-     {
-      "node": "Map LinkedIn",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "pGMO2FUg1tHpbwsR",
-  "activeAtExport": true
- }
 }

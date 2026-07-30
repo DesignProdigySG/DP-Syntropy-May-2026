@@ -1,167 +1,149 @@
 {
- "name": "Recommendation Expiry",
- "nodes": [
-  {
-   "id": "73139408-3142-45f7-a8a7-a9cb470616c0",
-   "name": "Daily 05:45",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    0,
-    0
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "days",
-       "daysInterval": 1,
-       "triggerAtHour": 5,
-       "triggerAtMinute": 45
+  "name": "Recommendation Expiry",
+  "nodes": [
+    {
+      "id": "73139408-3142-45f7-a8a7-a9cb470616c0",
+      "name": "Daily 05:45",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 5,
+              "triggerAtMinute": 45
+            }
+          ]
+        }
       }
-     ]
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "905dfe79-2f5c-4a5d-b997-c65cb90bb5d4",
-   "name": "Get Config",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    0
-   ],
-   "parameters": {
-    "query": "select\n  (select value from app_config where key='approval_hmac_secret') as value,\n  coalesce(nullif(trim((select value from app_config where key='recommendation_expiry_days')), ''), '7')::int as expiry_days;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "99138c50-8862-438c-9361-95c55c80cae5",
-   "name": "Find Stale Recommendations",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    448,
-    0
-   ],
-   "parameters": {
-    "query": "=SELECT id, account, action_type, created_at\nFROM actions\nWHERE status = 'recommended'\n  AND created_at < now() - make_interval(days => {{ $('Get Config').first().json.expiry_days }})\nORDER BY created_at ASC\nLIMIT 100;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "20fdef79-1524-413c-a55d-3a2dfb5b16fa",
-   "name": "Build Expiry Calls",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    672,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "// Expire via the existing Action Approval Handler reject path so the Mark\n// Cancelled status guard, rejection_routed_to CASE, cadence-step sync trigger\n// and WHEN feedback forwarding are all reused unchanged. reason=expired routes\n// to engine_logic (a stale recommendation is a timing miss, not a data miss).\nconst crypto = require('crypto');\nconst SECRET = $('Get Config').first().json.value;\nconst stale = $('Find Stale Recommendations').all().map(i => i.json);\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nfunction sign(id) { return crypto.createHmac('sha256', SECRET).update(`action:${id}:reject`).digest('hex').slice(0, 32); }\nreturn stale.map(a => ({ json: { id: a.id, account: a.account, url: `${base}?id=${a.id}&action=reject&sig=${sign(a.id)}&reason=expired` } }));"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "80f13fc7-545d-4b2b-ae85-76c120802d33",
-   "name": "Expire Each",
-   "type": "n8n-nodes-base.httpRequest",
-   "onError": "continueRegularOutput",
-   "position": [
-    896,
-    0
-   ],
-   "parameters": {
-    "url": "={{ $json.url }}",
-    "method": "GET",
-    "options": {
-     "timeout": 30000,
-     "batching": {
-      "batch": {
-       "batchSize": 1,
-       "batchInterval": 500
+    },
+    {
+      "id": "905dfe79-2f5c-4a5d-b997-c65cb90bb5d4",
+      "name": "Get Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select value from app_config where key='approval_hmac_secret') as value,\n  coalesce(nullif(trim((select value from app_config where key='recommendation_expiry_days')), ''), '7')::int as expiry_days;",
+        "options": {}
       }
-     }
+    },
+    {
+      "id": "99138c50-8862-438c-9361-95c55c80cae5",
+      "name": "Find Stale Recommendations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, account, action_type, created_at\nFROM actions\nWHERE status = 'recommended'\n  AND created_at < now() - make_interval(days => {{ $('Get Config').first().json.expiry_days }})\nORDER BY created_at ASC\nLIMIT 100;",
+        "options": {}
+      }
+    },
+    {
+      "id": "20fdef79-1524-413c-a55d-3a2dfb5b16fa",
+      "name": "Build Expiry Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Expire via the existing Action Approval Handler reject path so the Mark\n// Cancelled status guard, rejection_routed_to CASE, cadence-step sync trigger\n// and WHEN feedback forwarding are all reused unchanged. reason=expired routes\n// to engine_logic (a stale recommendation is a timing miss, not a data miss).\nconst crypto = require('crypto');\nconst SECRET = $('Get Config').first().json.value;\nconst stale = $('Find Stale Recommendations').all().map(i => i.json);\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nfunction sign(id) { return crypto.createHmac('sha256', SECRET).update(`action:${id}:reject`).digest('hex').slice(0, 32); }\nreturn stale.map(a => ({ json: { id: a.id, account: a.account, url: `${base}?id=${a.id}&action=reject&sig=${sign(a.id)}&reason=expired` } }));"
+      }
+    },
+    {
+      "id": "80f13fc7-545d-4b2b-ae85-76c120802d33",
+      "name": "Expire Each",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput"
     }
-   },
-   "typeVersion": 4.4
+  ],
+  "connections": {
+    "Daily 05:45": {
+      "main": [
+        [
+          {
+            "node": "Get Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Config": {
+      "main": [
+        [
+          {
+            "node": "Find Stale Recommendations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Stale Recommendations": {
+      "main": [
+        [
+          {
+            "node": "Build Expiry Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Expiry Calls": {
+      "main": [
+        [
+          {
+            "node": "Expire Each",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Get Config": {
-   "main": [
-    [
-     {
-      "node": "Find Stale Recommendations",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Daily 05:45": {
-   "main": [
-    [
-     {
-      "node": "Get Config",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Expiry Calls": {
-   "main": [
-    [
-     {
-      "node": "Expire Each",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Find Stale Recommendations": {
-   "main": [
-    [
-     {
-      "node": "Build Expiry Calls",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "qYkwb4h5riveVwNJ",
-  "activeAtExport": true
- }
 }

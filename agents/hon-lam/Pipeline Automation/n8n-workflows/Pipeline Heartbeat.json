@@ -1,242 +1,212 @@
 {
- "name": "Pipeline Heartbeat",
- "nodes": [
-  {
-   "id": "ce986477-4caa-42d8-8ca6-ff167284656b",
-   "name": "Daily 08:30",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    0,
-    0
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "triggerAtHour": 8,
-       "triggerAtMinute": 30
+  "name": "Pipeline Heartbeat",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "ce986477-4caa-42d8-8ca6-ff167284656b",
+      "name": "Daily 08:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select workflow_id, name, kind, max_silence_hours,\n       coalesce(nullif((select value from app_config where key='ops_alert_email'),''), 'honlamchia@gmail.com') as ops_email\nfrom heartbeat_expected where enabled order by name",
+        "options": {}
+      },
+      "id": "7e319df2-903f-46d6-82cb-2c3f294ec000",
+      "name": "Get Expected Workflows",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://designprodigy.app.n8n.cloud/api/v1/workflows?active=true&limit=250",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "42d5eb92-8dde-4930-b47a-6de362a7e26e",
+      "name": "Fetch Active Workflows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        0
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// 2026-07-13 rework: the old single GET /executions?limit=250 window shrank to ~1 day\n// once the 15-min/30-min/hourly workflows shipped, false-alerting weekly/daily jobs.\n// Now each monitored workflow gets its own ?workflowId=&limit=1 lookup (Fetch Last\n// Execution, one item per heartbeat_expected row, order-preserving), so max_silence_hours\n// is always honored. Note: n8n cloud execution retention still bounds how far back\n// 'last run' can be seen — keep max_silence_hours within the retention period.\nconst expected = $('Get Expected Workflows').all().map(i => i.json);\nconst activeIds = new Set((($('Fetch Active Workflows').first().json || {}).data || []).map(w => w.id));\nconst lastResp = $input.all();\nconst now = Date.now();\nconst problems = [];\nfor (let i = 0; i < expected.length; i++) {\n  const w = expected[i];\n  if (!activeIds.has(w.workflow_id)) {\n    problems.push({ workflow_id: w.workflow_id, name: w.name, problem: 'NOT ACTIVE — deactivated or archived (the Sign Link failure mode)' });\n    continue;\n  }\n  if (w.kind === 'schedule') {\n    const limitH = w.max_silence_hours || 26;\n    const d = ((lastResp[i] || {}).json || {}).data || [];\n    const last = d.length ? new Date(d[0].startedAt).getTime() : null;\n    if (!last) {\n      problems.push({ workflow_id: w.workflow_id, name: w.name, problem: 'active but no execution found at all (or outside n8n execution retention) — schedule may not be firing' });\n    } else if (now - last > limitH * 3600 * 1000) {\n      problems.push({ workflow_id: w.workflow_id, name: w.name, problem: 'active but last run was ' + Math.round((now - last) / 3600000) + 'h ago (limit ' + limitH + 'h)' });\n    }\n  }\n}\nreturn problems.map(p => ({ json: p }));",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "defe05c6-0ccb-4c8b-99df-a06d9bf301b4",
+      "name": "Find Heartbeat Problems",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into pipeline_errors (company, phase, node_name, error_msg, resolved) select 'n8n', 'heartbeat', $1, $2, false where not exists (select 1 from pipeline_errors where phase = 'heartbeat' and node_name = $1 and occurred_at::date = current_date) returning id",
+        "options": {
+          "queryReplacement": "={{ [$json.name, $json.problem] }}"
+        }
+      },
+      "id": "f61d46c9-ecd9-462c-b199-3b42659b8986",
+      "name": "Log Heartbeat Problem",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1104,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ ($('Get Expected Workflows').first().json.ops_email || '').trim() || 'honlamchia@gmail.com' }}",
+        "subject": "=💓 Pipeline heartbeat — {{ $('Find Heartbeat Problems').all().length }} workflow problem(s)",
+        "emailType": "text",
+        "message": "=The daily heartbeat found workflows that are deactivated or silent:\n\n{{ $('Find Heartbeat Problems').all().map(i => '- ' + i.json.name + ' (' + i.json.workflow_id + '): ' + i.json.problem).join('\\n') }}\n\nAn inactive workflow sends NO error emails — that is exactly why this check exists (see the 2026-07-01 Sign Link incident). Open n8n, check the workflow, and re-publish/fix as needed. Logged to pipeline_errors with phase 'heartbeat'.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "fe275253-3d6e-42a5-b198-b28f41fc9a6e",
+      "name": "Alert Heartbeat Problems",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1328,
+        0
+      ],
+      "executeOnce": true,
+      "webhookId": "5d90e7b2-d45a-4490-b51a-ec34883926be"
+    },
+    {
+      "id": "34e543fc-24b2-48b9-ac82-58dd1f8fdcf3",
+      "name": "Fetch Last Execution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        100
+      ],
+      "parameters": {
+        "url": "=https://designprodigy.app.n8n.cloud/api/v1/executions?workflowId={{ $json.workflow_id }}&limit=1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 300
+            }
+          }
+        }
       }
-     ]
     }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "7e319df2-903f-46d6-82cb-2c3f294ec000",
-   "name": "Get Expected Workflows",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    0
-   ],
-   "parameters": {
-    "query": "select workflow_id, name, kind, max_silence_hours from heartbeat_expected where enabled order by name",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "42d5eb92-8dde-4930-b47a-6de362a7e26e",
-   "name": "Fetch Active Workflows",
-   "type": "n8n-nodes-base.httpRequest",
-   "position": [
-    448,
-    0
-   ],
-   "parameters": {
-    "url": "https://designprodigy.app.n8n.cloud/api/v1/workflows?active=true&limit=250",
-    "options": {
-     "timeout": 15000
+  ],
+  "connections": {
+    "Daily 08:30": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "authentication": "genericCredentialType",
-    "genericAuthType": "httpHeaderAuth"
-   },
-   "credentials": {
-    "httpHeaderAuth": {
-     "id": "Qx7RDnpySVz6G8xw",
-     "name": "Header Auth account"
-    }
-   },
-   "executeOnce": true,
-   "typeVersion": 4.4
-  },
-  {
-   "id": "ba670e8f-695d-4017-9d29-0be89fd2cbcf",
-   "name": "Fetch Recent Executions",
-   "type": "n8n-nodes-base.httpRequest",
-   "position": [
-    672,
-    0
-   ],
-   "parameters": {
-    "url": "https://designprodigy.app.n8n.cloud/api/v1/executions?limit=250",
-    "options": {
-     "timeout": 15000
+    "Find Heartbeat Problems": {
+      "main": [
+        [
+          {
+            "node": "Log Heartbeat Problem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "authentication": "genericCredentialType",
-    "genericAuthType": "httpHeaderAuth"
-   },
-   "credentials": {
-    "httpHeaderAuth": {
-     "id": "Qx7RDnpySVz6G8xw",
-     "name": "Header Auth account"
-    }
-   },
-   "executeOnce": true,
-   "typeVersion": 4.4
-  },
-  {
-   "id": "defe05c6-0ccb-4c8b-99df-a06d9bf301b4",
-   "name": "Find Heartbeat Problems",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    880,
-    0
-   ],
-   "parameters": {
-    "jsCode": "const expected = $('Get Expected Workflows').all().map(i => i.json);\nconst activeIds = new Set((($('Fetch Active Workflows').first().json || {}).data || []).map(w => w.id));\nconst execs = (($('Fetch Recent Executions').first().json || {}).data || []);\nconst lastRun = {};\nfor (const e of execs) {\n  const t = new Date(e.startedAt).getTime();\n  if (!lastRun[e.workflowId] || t > lastRun[e.workflowId]) lastRun[e.workflowId] = t;\n}\nconst now = Date.now();\nconst problems = [];\nfor (const w of expected) {\n  if (!activeIds.has(w.workflow_id)) {\n    problems.push({ workflow_id: w.workflow_id, name: w.name, problem: 'NOT ACTIVE — deactivated or archived (the Sign Link failure mode)' });\n    continue;\n  }\n  if (w.kind === 'schedule') {\n    const limitH = w.max_silence_hours || 26;\n    const last = lastRun[w.workflow_id];\n    if (!last) {\n      problems.push({ workflow_id: w.workflow_id, name: w.name, problem: 'active but NO execution in the last 250 executions — schedule may not be firing' });\n    } else if (now - last > limitH * 3600 * 1000) {\n      problems.push({ workflow_id: w.workflow_id, name: w.name, problem: 'active but last run was ' + Math.round((now - last) / 3600000) + 'h ago (limit ' + limitH + 'h)' });\n    }\n  }\n}\nreturn problems.map(p => ({ json: p }));"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "f61d46c9-ecd9-462c-b199-3b42659b8986",
-   "name": "Log Heartbeat Problem",
-   "type": "n8n-nodes-base.postgres",
-   "onError": "continueRegularOutput",
-   "position": [
-    1104,
-    0
-   ],
-   "parameters": {
-    "query": "insert into pipeline_errors (company, phase, node_name, error_msg, resolved) select 'n8n', 'heartbeat', $1, $2, false where not exists (select 1 from pipeline_errors where phase = 'heartbeat' and node_name = $1 and occurred_at::date = current_date) returning id",
-    "options": {
-     "queryReplacement": "={{ [$json.name, $json.problem] }}"
+    "Log Heartbeat Problem": {
+      "main": [
+        [
+          {
+            "node": "Alert Heartbeat Problems",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "fe275253-3d6e-42a5-b198-b28f41fc9a6e",
-   "name": "Alert Heartbeat Problems",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    1328,
-    0
-   ],
-   "webhookId": "5d90e7b2-d45a-4490-b51a-ec34883926be",
-   "parameters": {
-    "sendTo": "honlamchia@gmail.com",
-    "message": "=The daily heartbeat found workflows that are deactivated or silent:\n\n{{ $('Find Heartbeat Problems').all().map(i => '- ' + i.json.name + ' (' + i.json.workflow_id + '): ' + i.json.problem).join('\\n') }}\n\nAn inactive workflow sends NO error emails — that is exactly why this check exists (see the 2026-07-01 Sign Link incident). Open n8n, check the workflow, and re-publish/fix as needed. Logged to pipeline_errors with phase 'heartbeat'.",
-    "options": {
-     "appendAttribution": false
+    "Get Expected Workflows": {
+      "main": [
+        [
+          {
+            "node": "Fetch Last Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "subject": "=💓 Pipeline heartbeat — {{ $('Find Heartbeat Problems').all().length }} workflow problem(s)",
-    "emailType": "text"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
+    "Fetch Last Execution": {
+      "main": [
+        [
+          {
+            "node": "Find Heartbeat Problems",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active Workflows": {
+      "main": [
+        [
+          {
+            "node": "Get Expected Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "executeOnce": true,
-   "typeVersion": 2.2
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Daily 08:30": {
-   "main": [
-    [
-     {
-      "node": "Get Expected Workflows",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Log Heartbeat Problem": {
-   "main": [
-    [
-     {
-      "node": "Alert Heartbeat Problems",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Fetch Active Workflows": {
-   "main": [
-    [
-     {
-      "node": "Fetch Recent Executions",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get Expected Workflows": {
-   "main": [
-    [
-     {
-      "node": "Fetch Active Workflows",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Fetch Recent Executions": {
-   "main": [
-    [
-     {
-      "node": "Find Heartbeat Problems",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Find Heartbeat Problems": {
-   "main": [
-    [
-     {
-      "node": "Log Heartbeat Problem",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "blpfVN7IwgfJJxn2",
-  "activeAtExport": true
- }
 }

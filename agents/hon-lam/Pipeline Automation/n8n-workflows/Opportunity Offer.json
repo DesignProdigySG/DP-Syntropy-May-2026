@@ -1,229 +1,199 @@
 {
- "name": "Opportunity Offer",
- "nodes": [
-  {
-   "id": "65c10cb3-442c-415a-a1eb-c73bdabb8cf8",
-   "name": "Daily Opportunity Offer Check",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    0,
-    0
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "days",
-       "daysInterval": 1,
-       "triggerAtHour": 6,
-       "triggerAtMinute": 45
-      }
-     ]
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "05663fef-7247-44ec-bdf0-a0d86ee18067",
-   "name": "Find Goal-Met Campaigns",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    208,
-    0
-   ],
-   "parameters": {
-    "query": "SELECT id, account, salesforce_campaign_id, completion_reason\nFROM campaigns\nWHERE status = 'completed'\n  AND completion_reason = 'goal_met'\n  AND opportunity_status = 'not_offered'\nORDER BY created_at ASC\nLIMIT 20;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "765252ed-2681-462f-9af7-8466c2c5d2b7",
-   "name": "Mark Opportunity Offered",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    384,
-    0
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "campaigns",
-     "cachedResultName": "campaigns"
+  "name": "Opportunity Offer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 6,
+              "triggerAtMinute": 45
+            }
+          ]
+        }
+      },
+      "id": "65c10cb3-442c-415a-a1eb-c73bdabb8cf8",
+      "name": "Daily Opportunity Offer Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, account, salesforce_campaign_id, completion_reason\nFROM campaigns\nWHERE status = 'completed'\n  AND completion_reason = 'goal_met'\n  AND opportunity_status = 'not_offered'\nORDER BY created_at ASC\nLIMIT 20;",
+        "options": {}
+      },
+      "id": "05663fef-7247-44ec-bdf0-a0d86ee18067",
+      "name": "Find Goal-Met Campaigns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ]
     },
-    "columns": {
-     "value": {
-      "id": "={{ $json.id }}",
-      "opportunity_status": "offered",
-      "opportunity_offered_at": "={{ $now.toISO() }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [
-      "id"
-     ],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "campaigns",
+          "cachedResultName": "campaigns"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "opportunity_status": "offered",
+            "opportunity_offered_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "765252ed-2681-462f-9af7-8466c2c5d2b7",
+      "name": "Mark Opportunity Offered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        384,
+        0
+      ]
     },
-    "options": {},
-    "operation": "update"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+    {
+      "parameters": {
+        "jsCode": "const campaigns = $('Find Goal-Met Campaigns').all().map(i => i.json);\nconst updated = $('Mark Opportunity Offered').all().map(i => i.json);\nconst crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`opportunity:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/opportunity-approval';\nreturn campaigns.map((c, idx) => {\n  const row = updated[idx] || {};\n  const campaignId = row.id || c.id;\n  const subject = 'Opportunity ready - ' + c.account + ' (goal met)';\n  const message = c.account + ' hit its campaign goal and the cadence has been stopped.\\n\\n' +\n    'Create a Salesforce Opportunity for this account?\\n\\n' +\n    'CREATE:  ' + base + '?id=' + campaignId + '&action=approve&sig=' + sign(campaignId, 'approve') + '\\n' +\n    'DECLINE: ' + base + '?id=' + campaignId + '&action=reject&sig=' + sign(campaignId, 'reject');\n  return { json: { account: c.account, subject, message } };\n});",
+        "mode": "runOnceForAllItems",
+        "language": "javaScript"
+      },
+      "id": "2cb93392-14df-46f0-a353-355289fd451e",
+      "name": "Build Opportunity Offer Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "8051c239-d4c0-4792-9c78-ec041e8e8577",
+      "name": "Send Opportunity Offer Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        0
+      ],
+      "webhookId": "97dbfef8-52d6-4988-bbd9-0745fbeebc88",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select (select value from app_config where key='approval_hmac_secret') as value, (select value from app_config where key='rep_notification_email') as rep_email;",
+        "options": {}
+      },
+      "id": "b3cab502-899c-4826-98c5-4ce242e735a9",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        528,
+        0
+      ]
     }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "2cb93392-14df-46f0-a353-355289fd451e",
-   "name": "Build Opportunity Offer Email",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    688,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const campaigns = $('Find Goal-Met Campaigns').all().map(i => i.json);\nconst updated = $('Mark Opportunity Offered').all().map(i => i.json);\nconst crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`opportunity:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/opportunity-approval';\nreturn campaigns.map((c, idx) => {\n  const row = updated[idx] || {};\n  const campaignId = row.id || c.id;\n  const subject = 'Opportunity ready - ' + c.account + ' (goal met)';\n  const message = c.account + ' hit its campaign goal and the cadence has been stopped.\\n\\n' +\n    'Create a Salesforce Opportunity for this account?\\n\\n' +\n    'CREATE:  ' + base + '?id=' + campaignId + '&action=approve&sig=' + sign(campaignId, 'approve') + '\\n' +\n    'DECLINE: ' + base + '?id=' + campaignId + '&action=reject&sig=' + sign(campaignId, 'reject');\n  return { json: { account: c.account, subject, message } };\n});",
-    "language": "javaScript"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "8051c239-d4c0-4792-9c78-ec041e8e8577",
-   "name": "Send Opportunity Offer Email",
-   "type": "n8n-nodes-base.gmail",
-   "maxTries": 3,
-   "position": [
-    896,
-    0
-   ],
-   "webhookId": "97dbfef8-52d6-4988-bbd9-0745fbeebc88",
-   "parameters": {
-    "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
-    "message": "={{ $json.message }}",
-    "options": {},
-    "subject": "={{ $json.subject }}",
-    "resource": "message",
-    "emailType": "text",
-    "operation": "send"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
+  ],
+  "connections": {
+    "Daily Opportunity Offer Check": {
+      "main": [
+        [
+          {
+            "node": "Find Goal-Met Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Goal-Met Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Mark Opportunity Offered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Opportunity Offer Email": {
+      "main": [
+        [
+          {
+            "node": "Send Opportunity Offer Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Opportunity Offered": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Build Opportunity Offer Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "retryOnFail": true,
-   "typeVersion": 2.2,
-   "waitBetweenTries": 2000
   },
-  {
-   "id": "b3cab502-899c-4826-98c5-4ce242e735a9",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    528,
-    0
-   ],
-   "parameters": {
-    "query": "select (select value from app_config where key='approval_hmac_secret') as value, (select value from app_config where key='rep_notification_email') as rep_email;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Build Opportunity Offer Email",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Find Goal-Met Campaigns": {
-   "main": [
-    [
-     {
-      "node": "Mark Opportunity Offered",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Opportunity Offered": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Opportunity Offer Email": {
-   "main": [
-    [
-     {
-      "node": "Send Opportunity Offer Email",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Daily Opportunity Offer Check": {
-   "main": [
-    [
-     {
-      "node": "Find Goal-Met Campaigns",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "dnGpK2weiPIcikGa",
-  "activeAtExport": true
- }
 }

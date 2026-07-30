@@ -1,352 +1,316 @@
 {
- "name": "Reply Triage",
- "nodes": [
-  {
-   "id": "50cd3679-a632-4418-ac1f-ab3ade1de424",
-   "name": "Hourly",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    0,
-    112
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "hours",
-       "hoursInterval": 1,
-       "triggerAtMinute": 20
+  "name": "Reply Triage",
+  "nodes": [
+    {
+      "id": "50cd3679-a632-4418-ac1f-ab3ade1de424",
+      "name": "Hourly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        112
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1,
+              "triggerAtMinute": 20
+            }
+          ]
+        }
       }
-     ]
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "b450ae00-c434-482b-a98e-5ab136a809b8",
-   "name": "Find Untriaged Replies",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    112
-   ],
-   "parameters": {
-    "query": "SELECT e.id, e.account, e.contact, e.event_type, e.campaign,\n       e.metadata->>'reply_snippet' AS reply_snippet,\n       coalesce(nullif((SELECT c.rep_email FROM clients c WHERE c.id = e.client_id), ''), (SELECT value FROM app_config WHERE key='rep_notification_email')) AS rep_email,\n       (SELECT a.outreach_draft FROM actions a WHERE a.utm_campaign = e.campaign LIMIT 1) AS original_outreach\nFROM engagement_events e\nWHERE e.event_type IN ('email_reply','linkedin_reply')\n  AND coalesce(e.metadata->>'triaged','') = ''\n  AND coalesce(e.metadata->>'reply_snippet','') <> ''\nORDER BY e.id\nLIMIT 10;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "0cfa721f-54bf-451e-9fdf-10ae2e6f8cd9",
-   "name": "Build Prompt",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    448,
-    112
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "return $input.all().map(i => {\n  const j = i.json;\n  const prompt = `You triage replies to B2B outreach for a sales rep.\\n\\nAccount: ${j.account}\\nChannel: ${j.event_type === 'email_reply' ? 'email' : 'LinkedIn'}\\nOur original outreach (may be empty): ${(j.original_outreach || '(unknown)').slice(0, 600)}\\nTheir reply: ${(j.reply_snippet || '').slice(0, 600)}\\n\\nHARD RULES for the suggested response:\\n- NEVER invent facts, pricing, numbers, product capabilities, or commitments. You do not know our pricing or specs.\\n- If they ask for specifics you don't have, acknowledge the question and say you'll follow up with exact details, or propose a short call.\\n- Match their tone; be brief and human; no placeholders like [name].\\n\\nRespond with ONLY a JSON object:\\n{\\\"classification\\\": one of \\\"interested\\\" | \\\"objection\\\" | \\\"not_now\\\" | \\\"unsubscribe\\\" | \\\"other\\\",\\n \\\"suggested_response\\\": a short (under 100 words), plain-text reply the rep could send as-is. Empty string if classification is unsubscribe.,\\n \\\"rationale\\\": one sentence on why you classified it this way}`;\n  return { json: { ...j, prompt } };\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "69b0fec3-7e09-480e-9ffa-5cdc06c4d082",
-   "name": "Reply Triage AI",
-   "type": "@n8n/n8n-nodes-langchain.agent",
-   "position": [
-    672,
-    112
-   ],
-   "parameters": {
-    "text": "={{ $json.prompt }}",
-    "promptType": "define"
-   },
-   "typeVersion": 3.1
-  },
-  {
-   "id": "ea86db92-ada6-4582-a0f6-703246e4f38f",
-   "name": "OpenAI Model — Triage",
-   "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-   "position": [
-    752,
-    336
-   ],
-   "parameters": {
-    "model": {
-     "__rl": true,
-     "mode": "list",
-     "value": "gpt-5-mini"
     },
-    "options": {
-     "timeout": 60000,
-     "maxRetries": 1,
-     "responseFormat": "json_object",
-     "reasoningEffort": "low"
-    },
-    "responsesApiEnabled": false
-   },
-   "credentials": {
-    "openAiApi": {
-     "id": "dJxyXpOYQSqrDm62",
-     "name": "OpenAI account"
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "fa11626c-38ba-4507-9202-f68032ee4be4",
-   "name": "Parse Triage",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1024,
-    112
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst rows = $('Build Prompt').all().map(i => i.json);\nconst outs = $input.all();\nconst ALLOWED = ['interested','objection','not_now','unsubscribe','other'];\nreturn outs.map((o, idx) => {\n  const src = rows[idx] || {};\n  let cls = 'unclassified', resp = '', why = '';\n  try {\n    const raw = o.json.output ?? o.json.text ?? o.json.response ?? '';\n    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    if (parsed && ALLOWED.includes(parsed.classification)) cls = parsed.classification;\n    resp = String(parsed && parsed.suggested_response || '').slice(0, 1500);\n    why = String(parsed && parsed.rationale || '').slice(0, 300);\n  } catch (e) { /* leave unclassified */ }\n  return { json: {\n    event_id: src.id, account: src.account, contact: src.contact || '',\n    event_type: src.event_type, rep_email: src.rep_email || '',\n    reply_snippet: src.reply_snippet || '',\n    classification: cls, suggested_response: resp, rationale: why,\n    classification_esc: esc(cls)\n  } };\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "df6690a8-182b-4a4d-911f-c9b69fb14b43",
-   "name": "Mark Triaged",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1248,
-    112
-   ],
-   "parameters": {
-    "query": "UPDATE engagement_events\nSET metadata = metadata || jsonb_build_object('triaged', true, 'classification', '{{ $json.classification_esc }}', 'triaged_at', now()::text)\nWHERE id = {{ $json.event_id }}\nRETURNING id;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "d82f8755-24be-4a2d-adc4-ede0845dd29c",
-   "name": "Notify Rep",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    1472,
-    112
-   ],
-   "webhookId": "f280bfa0-d39c-4ab8-bf39-932724c52694",
-   "parameters": {
-    "sendTo": "={{ $('Parse Triage').item.json.rep_email }}",
-    "message": "=They replied ({{ $('Parse Triage').item.json.event_type === 'email_reply' ? 'email' : 'LinkedIn' }}):\n“{{ $('Parse Triage').item.json.reply_snippet }}”\n\nClassification: {{ $('Parse Triage').item.json.classification }} — {{ $('Parse Triage').item.json.rationale }}\n\n— Suggested response (also saved as a Gmail draft if this was an email reply) —\n{{ $('Parse Triage').item.json.suggested_response || '(none — handle manually)' }}",
-    "options": {},
-    "subject": "=Reply from {{ $('Parse Triage').item.json.account }} — {{ $('Parse Triage').item.json.classification }}",
-    "resource": "message",
-    "emailType": "text",
-    "operation": "send"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "e3e10db2-8a61-470c-94e1-250789859eff",
-   "name": "Draftable Email Reply?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    1696,
-    112
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $('Parse Triage').item.json.event_type }}",
-       "rightValue": "email_reply"
-      },
-      {
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $('Parse Triage').item.json.contact.includes('@') ? 'yes' : '' }}"
-      },
-      {
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $('Parse Triage').item.json.suggested_response }}"
+    {
+      "id": "b450ae00-c434-482b-a98e-5ab136a809b8",
+      "name": "Find Untriaged Replies",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        112
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT e.id, e.account, e.contact, e.event_type, e.campaign,\n       e.metadata->>'reply_snippet' AS reply_snippet,\n       coalesce(nullif((SELECT c.rep_email FROM clients c WHERE c.id = e.client_id), ''), (SELECT value FROM app_config WHERE key='rep_notification_email')) AS rep_email,\n       (SELECT a.outreach_draft FROM actions a WHERE a.utm_campaign = e.campaign LIMIT 1) AS original_outreach\nFROM engagement_events e\nWHERE e.event_type IN ('email_reply','linkedin_reply')\n  AND coalesce(e.metadata->>'triaged','') = ''\n  AND coalesce(e.metadata->>'reply_snippet','') <> ''\nORDER BY e.id\nLIMIT 10;",
+        "options": {}
       }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "710c91ce-821a-42ec-818e-5cca9e64fc7c",
-   "name": "Create Draft Reply",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    1920,
-    112
-   ],
-   "webhookId": "08e53dd8-3eca-44fd-bb48-4c253430007e",
-   "parameters": {
-    "message": "={{ $('Parse Triage').item.json.suggested_response }}",
-    "options": {
-     "sendTo": "={{ $('Parse Triage').item.json.contact }}"
     },
-    "subject": "=Re: Design Prodigy × {{ $('Parse Triage').item.json.account }}",
-    "resource": "draft",
-    "emailType": "text",
-    "operation": "create"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
+    {
+      "id": "0cfa721f-54bf-451e-9fdf-10ae2e6f8cd9",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        112
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map(i => {\n  const j = i.json;\n  const prompt = `You triage replies to B2B outreach for a sales rep.\\n\\nAccount: ${j.account}\\nChannel: ${j.event_type === 'email_reply' ? 'email' : 'LinkedIn'}\\nOur original outreach (may be empty): ${(j.original_outreach || '(unknown)').slice(0, 600)}\\nTheir reply: ${(j.reply_snippet || '').slice(0, 600)}\\n\\nHARD RULES for the suggested response:\\n- NEVER invent facts, pricing, numbers, product capabilities, or commitments. You do not know our pricing or specs.\\n- If they ask for specifics you don't have, acknowledge the question and say you'll follow up with exact details, or propose a short call.\\n- Match their tone; be brief and human; no placeholders like [name].\\n\\nRespond with ONLY a JSON object:\\n{\\\"classification\\\": one of \\\"interested\\\" | \\\"objection\\\" | \\\"not_now\\\" | \\\"unsubscribe\\\" | \\\"other\\\",\\n \\\"suggested_response\\\": a short (under 100 words), plain-text reply the rep could send as-is. Empty string if classification is unsubscribe.,\\n \\\"rationale\\\": one sentence on why you classified it this way}`;\n  return { json: { ...j, prompt } };\n});"
+      }
+    },
+    {
+      "id": "69b0fec3-7e09-480e-9ffa-5cdc06c4d082",
+      "name": "Reply Triage AI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        672,
+        112
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}"
+      }
+    },
+    {
+      "id": "ea86db92-ada6-4582-a0f6-703246e4f38f",
+      "name": "OpenAI Model — Triage",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        752,
+        336
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "responseFormat": "json_object",
+          "reasoningEffort": "low",
+          "timeout": 60000,
+          "maxRetries": 1
+        }
+      }
+    },
+    {
+      "id": "fa11626c-38ba-4507-9202-f68032ee4be4",
+      "name": "Parse Triage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        112
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const esc = (s) => String(s == null ? '' : s).replace(/'/g, \"''\");\nconst rows = $('Build Prompt').all().map(i => i.json);\nconst outs = $input.all();\nconst ALLOWED = ['interested','objection','not_now','unsubscribe','other'];\nreturn outs.map((o, idx) => {\n  const src = rows[idx] || {};\n  let cls = 'unclassified', resp = '', why = '';\n  try {\n    const raw = o.json.output ?? o.json.text ?? o.json.response ?? '';\n    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    if (parsed && ALLOWED.includes(parsed.classification)) cls = parsed.classification;\n    resp = String(parsed && parsed.suggested_response || '').slice(0, 1500);\n    why = String(parsed && parsed.rationale || '').slice(0, 300);\n  } catch (e) { /* leave unclassified */ }\n  return { json: {\n    event_id: src.id, account: src.account, contact: src.contact || '',\n    event_type: src.event_type, rep_email: src.rep_email || '',\n    reply_snippet: src.reply_snippet || '',\n    classification: cls, suggested_response: resp, rationale: why,\n    classification_esc: esc(cls)\n  } };\n});"
+      }
+    },
+    {
+      "id": "df6690a8-182b-4a4d-911f-c9b69fb14b43",
+      "name": "Mark Triaged",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1248,
+        112
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE engagement_events\nSET metadata = metadata || jsonb_build_object('triaged', true, 'classification', '{{ $json.classification_esc }}', 'triaged_at', now()::text)\nWHERE id = {{ $json.event_id }}\nRETURNING id;",
+        "options": {}
+      }
+    },
+    {
+      "id": "d82f8755-24be-4a2d-adc4-ede0845dd29c",
+      "name": "Notify Rep",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        112
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Parse Triage').item.json.rep_email }}",
+        "subject": "=Reply from {{ $('Parse Triage').item.json.account }} — {{ $('Parse Triage').item.json.classification }}",
+        "emailType": "text",
+        "message": "=They replied ({{ $('Parse Triage').item.json.event_type === 'email_reply' ? 'email' : 'LinkedIn' }}):\n“{{ $('Parse Triage').item.json.reply_snippet }}”\n\nClassification: {{ $('Parse Triage').item.json.classification }} — {{ $('Parse Triage').item.json.rationale }}\n\n— Suggested response (also saved as a Gmail draft if this was an email reply) —\n{{ $('Parse Triage').item.json.suggested_response || '(none — handle manually)' }}",
+        "options": {}
+      },
+      "webhookId": "f280bfa0-d39c-4ab8-bf39-932724c52694"
+    },
+    {
+      "id": "e3e10db2-8a61-470c-94e1-250789859eff",
+      "name": "Draftable Email Reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        112
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Parse Triage').item.json.event_type }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "email_reply"
+            },
+            {
+              "leftValue": "={{ $('Parse Triage').item.json.contact.includes('@') ? 'yes' : '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "leftValue": "={{ $('Parse Triage').item.json.suggested_response }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "710c91ce-821a-42ec-818e-5cca9e64fc7c",
+      "name": "Create Draft Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        112
+      ],
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "=Re: Design Prodigy × {{ $('Parse Triage').item.json.account }}",
+        "emailType": "text",
+        "message": "={{ $('Parse Triage').item.json.suggested_response }}",
+        "options": {
+          "sendTo": "={{ $('Parse Triage').item.json.contact }}"
+        }
+      },
+      "webhookId": "08e53dd8-3eca-44fd-bb48-4c253430007e"
     }
-   },
-   "typeVersion": 2.2
+  ],
+  "connections": {
+    "Hourly": {
+      "main": [
+        [
+          {
+            "node": "Find Untriaged Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Untriaged Replies": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Reply Triage AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Triage AI": {
+      "main": [
+        [
+          {
+            "node": "Parse Triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model — Triage": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reply Triage AI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Triage": {
+      "main": [
+        [
+          {
+            "node": "Mark Triaged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Triaged": {
+      "main": [
+        [
+          {
+            "node": "Notify Rep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Rep": {
+      "main": [
+        [
+          {
+            "node": "Draftable Email Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draftable Email Reply?": {
+      "main": [
+        [
+          {
+            "node": "Create Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "executionTimeout": 300
   }
- ],
- "connections": {
-  "Hourly": {
-   "main": [
-    [
-     {
-      "node": "Find Untriaged Replies",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Notify Rep": {
-   "main": [
-    [
-     {
-      "node": "Draftable Email Reply?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Prompt": {
-   "main": [
-    [
-     {
-      "node": "Reply Triage AI",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Triaged": {
-   "main": [
-    [
-     {
-      "node": "Notify Rep",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Parse Triage": {
-   "main": [
-    [
-     {
-      "node": "Mark Triaged",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Reply Triage AI": {
-   "main": [
-    [
-     {
-      "node": "Parse Triage",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Draftable Email Reply?": {
-   "main": [
-    [
-     {
-      "node": "Create Draft Reply",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Find Untriaged Replies": {
-   "main": [
-    [
-     {
-      "node": "Build Prompt",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "OpenAI Model — Triage": {
-   "ai_languageModel": [
-    [
-     {
-      "node": "Reply Triage AI",
-      "type": "ai_languageModel",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "availableInMCP": true,
-  "executionOrder": "v1",
-  "executionTimeout": 300
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "MasoBylwk6R2i0EI",
-  "activeAtExport": true
- }
 }

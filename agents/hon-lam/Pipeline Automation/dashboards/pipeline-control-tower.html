@@ -104,13 +104,14 @@
 
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Email · Smartlead <span id="cfgSmartleadState" class="kpi-sub" style="font-weight:400;"></span></label>
-      <input id="cfgSmartlead" type="password" autocomplete="off" placeholder="Smartlead API key" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
-      <div class="kpi-sub" style="margin-top:4px;">Turns on zero-touch email send + reply capture. The nightly provisioner then creates one Smartlead campaign per email action, webhook pre-attached. Leave blank to keep the current key.</div>
+      <input id="cfgSmartlead" type="password" autocomplete="off" disabled placeholder="Set server-side — not editable here" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;background:#f6f7f9;">
+      <div class="kpi-sub" style="margin-top:4px;">Turns on zero-touch email send + reply capture. The nightly provisioner then creates one Smartlead campaign per email action, webhook pre-attached.</div>
+      <div class="kpi-sub" style="margin-top:4px;">API keys are write-protected: this page can see <em>whether</em> a key is set, never its value, and cannot change it. Set it in the Supabase <code>app_config</code> table or via n8n.</div>
     </div>
 
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">LinkedIn · HeyReach <span id="cfgHeyreachState" class="kpi-sub" style="font-weight:400;"></span></label>
-      <input id="cfgHeyreach" type="password" autocomplete="off" placeholder="HeyReach API key" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <input id="cfgHeyreach" type="password" autocomplete="off" disabled placeholder="Set server-side — not editable here" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;background:#f6f7f9;">
       <div class="kpi-sub" style="margin-top:4px;">Captures LinkedIn accepts, replies, profile views and post likes. In HeyReach → Integrations → Webhooks, add one webhook per event pointing at:</div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
         <code style="flex:1;background:#f6f7f9;border:1px solid #e4e7ec;border-radius:6px;padding:6px 8px;font-size:12px;word-break:break-all;">https://designprodigy.app.n8n.cloud/webhook/linkedin</code>
@@ -152,12 +153,17 @@
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Rep notification email</label>
       <input id="cfgRepEmail" type="email" placeholder="rep@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
-      <div class="kpi-sub" style="margin-top:4px;">Where approved-action emails (outreach draft + tracked link) are sent. Leave blank to skip sending.</div>
+      <div class="kpi-sub" style="margin-top:4px;">Where rep-facing emails go &mdash; daily digest, brief released, action plan, approval and opportunity offers. A client with its own rep_email on record overrides this for its own accounts. Blank falls back to a placeholder address, so set it.</div>
     </div>
     <div style="margin:14px 0;">
       <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Manager report email</label>
       <input id="cfgManagerEmail" type="email" placeholder="manager@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
       <div class="kpi-sub" style="margin-top:4px;">Where the Friday Weekly Wins report is sent. Leave blank to skip sending.</div>
+    </div>
+    <div style="margin:14px 0;">
+      <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Ops &amp; failure alert email</label>
+      <input id="cfgOpsEmail" type="email" placeholder="ops@company.com" style="width:100%;border:1px solid #e4e7ec;border-radius:8px;padding:9px 12px;font-size:14px;">
+      <div class="kpi-sub" style="margin-top:4px;">Where technical alerts go &mdash; pipeline errors, the daily heartbeat, and pg_cron failures. Kept separate from the rep email so ops noise stays out of the rep&rsquo;s inbox. Blank falls back to honlamchia@gmail.com.</div>
     </div>
 
     <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475467;margin:22px 0 10px;padding-top:16px;border-top:1px solid #eef0f3;">Automation rules</div>
@@ -1050,10 +1056,13 @@ async function loadSettings(){
     document.getElementById('cfgWhenUrl').value=map.when_engine_url||'';
     document.getElementById('cfgRepEmail').value=map.rep_notification_email||'';
     document.getElementById('cfgManagerEmail').value=map.manager_report_email||'';
-    document.getElementById('cfgSmartlead').value=map.smartlead_api_key||'';
-    document.getElementById('cfgHeyreach').value=map.heyreach_api_key||'';
-    setSecretState('cfgSmartleadState', map.smartlead_api_key);
-    setSecretState('cfgHeyreachState', map.heyreach_api_key);
+    document.getElementById('cfgOpsEmail').value=map.ops_alert_email||'';
+    /* Secret values are no longer readable by the browser (app_config_read_public
+       excludes them). app_config_secret_status exposes only whether each is set. */
+    const secretRows=await fetchView('app_config_secret_status','select=key,is_set');
+    const secretSet={}; secretRows.forEach(r=>{ secretSet[r.key]=r.is_set; });
+    setSecretState('cfgSmartleadState', secretSet.smartlead_api_key);
+    setSecretState('cfgHeyreachState', secretSet.heyreach_api_key);
     document.getElementById('cfgExpiry').value=map.recommendation_expiry_days||'';
     await renderChannelChecklist(map.approval_required_channels||'');
     if(s) s.textContent='';
@@ -1091,8 +1100,7 @@ async function saveSettings(){
   const whenUrl=document.getElementById('cfgWhenUrl').value.trim();
   const repEmail=document.getElementById('cfgRepEmail').value.trim();
   const managerEmail=document.getElementById('cfgManagerEmail').value.trim();
-  const smartlead=document.getElementById('cfgSmartlead').value.trim();
-  const heyreach=document.getElementById('cfgHeyreach').value.trim();
+  const opsEmail=document.getElementById('cfgOpsEmail').value.trim();
   const channels=Array.from(document.querySelectorAll('.cfgChan:checked')).map(c=>c.value).join(',');
   s.style.color='#8a93a3'; s.textContent='Saving…';
   try{
@@ -1101,12 +1109,9 @@ async function saveSettings(){
     await patchConfig('when_engine_url', whenUrl);
     await patchConfig('rep_notification_email', repEmail);
     await patchConfig('manager_report_email', managerEmail);
-    if(smartlead) await patchConfig('smartlead_api_key', smartlead);
-    if(heyreach) await patchConfig('heyreach_api_key', heyreach);
+    await patchConfig('ops_alert_email', opsEmail);
     await patchConfig('approval_required_channels', channels);
     await patchConfig('recommendation_expiry_days', document.getElementById('cfgExpiry').value.trim());
-    setSecretState('cfgSmartleadState', smartlead);
-    setSecretState('cfgHeyreachState', heyreach);
     gatedChannels = null; // refresh the Actions-tab badges on next load
     s.style.color='#16a34a'; s.textContent='✓ Saved — applies on the next workflow run.';
   }catch(err){ s.style.color='#b42318'; s.textContent='Save failed: '+(err.message||err); }

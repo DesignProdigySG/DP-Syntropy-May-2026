@@ -1,0 +1,119 @@
+{
+  "name": "WHEN Engine — Brief Ingest",
+  "nodes": [
+    {
+      "id": "95b887fa-bac2-4cd1-9192-799497e831d6",
+      "name": "WHEN Engine Export",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "when-brief",
+        "options": {}
+      },
+      "webhookId": "8c582ac8-7071-497f-9862-ca3f51d0bbbb"
+    },
+    {
+      "id": "738d7a6a-e143-4df6-96af-670d447693a7",
+      "name": "Normalize Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Receives a brief exported from Jocelyn's WHEN Engine (wl_export_webhook).\n// n8n puts the POST JSON under $json.body; tests may put it directly on $json.\nconst hasBody = $json.body && typeof $json.body === 'object' && Object.keys($json.body).length > 0;\nconst b = hasBody ? $json.body : $json;\nconst acct = (b.account && typeof b.account === 'object') ? b.account : {};\nconst cls = (b.classification && typeof b.classification === 'object') ? b.classification : {};\nconst when = (b.when && typeof b.when === 'object') ? b.when : {};\nconst trg = (b.trigger && typeof b.trigger === 'object') ? b.trigger : ((b.trigger_event && typeof b.trigger_event === 'object') ? b.trigger_event : {});\nconst meta = (b.meta && typeof b.meta === 'object') ? b.meta : {};\nconst company = acct.name || b.company || (typeof b.account === 'string' ? b.account : null) || meta.account || null;\nconst when_urgency = b.urgency || when.urgency || cls.urgency || acct.urgency || null;\nconst when_stage = b.stage || when.stage || cls.stage || b.relationship_stage || null;\nconst trigger_type = trg.type || b.trigger_type || meta.document_type || 'brief_export';\nconst industry = b.industry || acct.industry || meta.industry || null;\nconst trigger_notes = trg.summary || trg.description || b.trigger_notes || null;\nreturn [{ json: {\n  company,\n  source: 'when_engine_export',\n  trigger_type,\n  when_urgency,\n  when_stage,\n  industry,\n  trigger_notes,\n  brief_generated: true,\n  raw_payload: JSON.stringify(b)\n} }];"
+      }
+    },
+    {
+      "id": "99a28ddf-9efc-416f-a33e-b75a94da2e75",
+      "name": "Insert Brief",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "pipeline_runs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "company": "={{ $json.company }}",
+            "source": "={{ $json.source }}",
+            "trigger_type": "={{ $json.trigger_type }}",
+            "when_urgency": "={{ $json.when_urgency }}",
+            "when_stage": "={{ $json.when_stage }}",
+            "industry": "={{ $json.industry }}",
+            "trigger_notes": "={{ $json.trigger_notes }}",
+            "brief_generated": "={{ $json.brief_generated }}",
+            "raw_payload": "={{ $json.raw_payload }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ecf89390-eb02-4690-be33-778b2aa4f0f0",
+      "name": "Sticky Note 8eadcc39",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -50,
+        -50
+      ],
+      "parameters": {
+        "content": "## WHEN Engine -> Backbone (brief ingest)\nPaste this workflow’s production webhook URL into Jocelyn’s engine export setting (wl_export_webhook).\nEach exported brief lands in pipeline_runs (source = when_engine_export), where the existing “Engagement -> WHEN Signals” read path already picks it up.",
+        "color": 4,
+        "width": 740,
+        "height": 200
+      }
+    }
+  ],
+  "connections": {
+    "WHEN Engine Export": {
+      "main": [
+        [
+          {
+            "node": "Normalize Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Brief": {
+      "main": [
+        [
+          {
+            "node": "Insert Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate"
+  }
+}

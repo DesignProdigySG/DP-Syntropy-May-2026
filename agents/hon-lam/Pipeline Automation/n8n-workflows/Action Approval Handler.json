@@ -1,1314 +1,1224 @@
 {
- "name": "Action Approval Handler",
- "nodes": [
-  {
-   "id": "486efa26-964a-4bde-bfe7-03d183f5f83c",
-   "name": "Webhook (approve/reject)",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    -640,
-    -16
-   ],
-   "webhookId": "3e3baa06-a0c4-43ac-8c23-f3f5dac056cc",
-   "parameters": {
-    "path": "action-approval",
-    "options": {},
-    "responseMode": "responseNode"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "da688a40-7916-4e59-bba5-f21ba27413d2",
-   "name": "Approved?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    48,
-    -16
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "10378324-298e-4775-916a-2eb2c0b3d050",
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.query.action }}",
-       "rightValue": "approve"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "c77d1551-11f4-4427-a15a-bc9d57cf937e",
-   "name": "Mark Executed",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    304,
-    -128
-   ],
-   "parameters": {
-    "query": "UPDATE actions\nSET status = 'executed', executed_at = now(), decided_at = now()\nWHERE id = {{ $json.query.id }} AND status <> 'executed'\nRETURNING id, account, action_type, target, priority, reason, hypothesis, tracked_url, outreach_draft, campaign_id,\n  (select raw_payload from pipeline_runs where id = actions.run_id) as raw_payload,\n  (select salesforce_campaign_id from campaigns where id = actions.campaign_id) as salesforce_campaign_id,\n  coalesce(nullif((select c.rep_email from clients c where c.id = actions.client_id), ''), (select value from app_config where key='rep_notification_email')) as rep_email_resolved;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "8e31943e-6bbb-46b0-8c45-49e2ad18faea",
-   "name": "Mark Cancelled",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    288,
-    112
-   ],
-   "parameters": {
-    "query": "UPDATE actions\nSET status = 'cancelled',\n    rejection_reason = NULLIF('{{ $json.query.reason }}', ''),\n    rejection_routed_to = CASE\n      WHEN '{{ $json.query.reason }}' IN ('stale_fact', 'wrong_contact', 'incorrect_information') THEN 'source'\n      WHEN '{{ $json.query.reason }}' = '' THEN NULL\n      ELSE 'engine_logic' END,\n    decided_at = now()\nWHERE id = {{ $json.query.id }} AND status = 'recommended'\nRETURNING id, account, rejection_reason, rejection_routed_to, (select raw_payload from pipeline_runs where id = actions.run_id) as raw_payload, (select value from app_config where key='when_engine_url') as when_engine_url;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "b653a12f-0ff7-4087-bbd9-ca959cf5333e",
-   "name": "Send Action to Rep",
-   "type": "n8n-nodes-base.gmail",
-   "maxTries": 3,
-   "position": [
-    1472,
-    -144
-   ],
-   "webhookId": "0a49e9f0-0bfb-4f25-a5a1-3f484faa2843",
-   "parameters": {
-    "sendTo": "={{ $('Mark Executed').first().json.rep_email_resolved }}",
-    "message": "=Action: {{ $('Mark Executed').first().json.action_type }} for {{ $('Mark Executed').first().json.account }}\nHypothesis: {{ $('Mark Executed').first().json.hypothesis }}\n\n— Suggested message (WHEN engine draft) —\n{{ $('Mark Executed').first().json.outreach_draft || '(none provided — write your own)' }}\n\nTracked link to include in your outreach: {{ $('Mark Executed').first().json.tracked_url }}",
-    "options": {},
-    "subject": "=Approved action for {{ $('Mark Executed').first().json.account }}",
-    "emailType": "text"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 2.2,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "66008ac9-54f3-4897-9fde-8460017fa5ff",
-   "name": "Respond Approved",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    1680,
-    32
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "=✓ Approved — action {{ $('Mark Executed').first().json.id }} for {{ $('Mark Executed').first().json.account }} will be executed."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "6adff059-dc68-4cfa-8e56-ba0361a3dd27",
-   "name": "Respond Rejected",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    1520,
-    128
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "=✕ Action rejected — forwarded to WHEN Engine for re-decision."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "3e7804e3-389c-452e-9c6e-e70ba79be005",
-   "name": "Build WHEN Feedback",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    624,
-    112
-   ],
-   "parameters": {
-    "jsCode": "const row = $json;\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nif (!brief || typeof brief !== 'object') {\n  brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.account || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n}\nbrief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\nbrief.human_signals.push({ type:'human_rejection', gate:'action', reason: row.rejection_reason || 'rejected_by_human', routed_to: row.rejection_routed_to || 'engine_logic', rejected_at:new Date().toISOString(), source:'delivery_layer', action_id: row.id });\nreturn [{ json: { when_engine_url: row.when_engine_url || '', payload: brief } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "82464671-93aa-4840-8aa5-324fdc63874a",
-   "name": "Engine URL set?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    816,
-    112
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 2,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "u1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.when_engine_url }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "f056fc56-274b-42db-bdbf-5fded07066c7",
-   "name": "Forward to WHEN Engine",
-   "type": "n8n-nodes-base.httpRequest",
-   "onError": "continueRegularOutput",
-   "maxTries": 3,
-   "position": [
-    1168,
-    48
-   ],
-   "parameters": {
-    "url": "={{ $json.when_engine_url }}",
-    "method": "POST",
-    "options": {},
-    "jsonBody": "={{ JSON.stringify($json.payload) }}",
-    "sendBody": true,
-    "specifyBody": "json"
-   },
-   "retryOnFail": true,
-   "typeVersion": 4.4,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "2260bff0-16a3-4cf0-89ce-e073429598f6",
-   "name": "Create a task",
-   "type": "n8n-nodes-base.salesforce",
-   "onError": "continueRegularOutput",
-   "maxTries": 3,
-   "position": [
-    720,
-    -256
-   ],
-   "parameters": {
-    "status": "Not Started",
-    "resource": "task",
-    "additionalFields": {
-     "whatId": "={{ $json.salesforce_campaign_id }}",
-     "subject": "=P{{ $('Mark Executed').first().json.priority }} {{ $('Mark Executed').first().json.action_type }} → {{ $('Mark Executed').first().json.target }}",
-     "priority": "Normal",
-     "description": "={{ $('Mark Executed').first().json.reason }}\n\nHypothesis: {{ $('Mark Executed').first().json.hypothesis }}\nTracked link: {{ $('Mark Executed').first().json.tracked_url }}",
-     "activityDate": "={{ $today.plus({ days: 7 }) }}"
-    }
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 1.1,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "027c8387-bf8b-42d6-97a7-d82d1fc4b132",
-   "name": "Verify Signature",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    -304,
-    -16
-   ],
-   "parameters": {
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`action:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst q = ($('Webhook (approve/reject)').item.json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst rawReason = q.reason || '';\nconst reason = String(rawReason).replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100);\n// src is metadata only (not part of the signature): 'auto' marks approvals fired\n// by the Cadence Scheduler's campaign-level auto-execution, so the per-action\n// rep email can be suppressed (the daily digest already carries the draft).\nconst src = q.src === 'auto' ? 'auto' : '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid, query: { id: idOk ? id : '', action: actionOk ? action : '', reason, src } } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "31c06099-bdee-4db6-afb8-a382bfadc514",
-   "name": "Signature Valid?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    -144,
-    -16
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "sigvalid1",
-       "operator": {
-        "type": "boolean",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.valid }}",
-       "rightValue": true
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "1592e77a-cbf6-40e9-b597-4cbb34bdd603",
-   "name": "Respond Invalid Signature",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    48,
-    288
-   ],
-   "parameters": {
-    "options": {
-     "responseCode": 403
+  "name": "Action Approval Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "action-approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "486efa26-964a-4bde-bfe7-03d183f5f83c",
+      "name": "Webhook (approve/reject)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -640,
+        -16
+      ],
+      "webhookId": "3e3baa06-a0c4-43ac-8c23-f3f5dac056cc"
     },
-    "respondWith": "text",
-    "responseBody": "✕ Invalid or expired approval link."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "3a6ab242-fa8e-47d3-97d0-bd88a320f106",
-   "name": "Extract Confirmed Contacts",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    736,
-    -464
-   ],
-   "parameters": {
-    "jsCode": "const row = $('Mark Executed').first().json;\nconst campaignSfId = row.salesforce_campaign_id || '';\nif (!campaignSfId) return [];\n\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nconst buyingGroup = (brief && Array.isArray(brief.buying_group)) ? brief.buying_group : [];\nconst account = (row.account || '').trim();\n\nconst confirmed = buyingGroup.filter(c => c && c.status === 'CONFIRMED' && typeof c.name === 'string' && c.name.trim());\n\nreturn confirmed.map(c => {\n  const parts = c.name.trim().split(/\\s+/);\n  let firstname = '', lastname = '';\n  if (parts.length > 1) {\n    lastname = parts.pop();\n    firstname = parts.join(' ');\n  } else {\n    lastname = parts[0] || '';\n  }\n  return { json: {\n    firstname, lastname, company: account,\n    title: c.title || '', focus_area: c.focus_area || '',\n    campaign_salesforce_id: campaignSfId\n  }};\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "c76bb5cd-46c6-438e-aa13-b4f32fb309ea",
-   "name": "Find Existing Lead",
-   "type": "n8n-nodes-base.salesforce",
-   "onError": "continueRegularOutput",
-   "maxTries": 3,
-   "position": [
-    1456,
-    -528
-   ],
-   "parameters": {
-    "query": "=SELECT Id FROM Lead WHERE FirstName = '{{ $json.firstname.replace(/'/g,\"\\\\'\") }}' AND LastName = '{{ $json.lastname.replace(/'/g,\"\\\\'\") }}' AND Company = '{{ $json.company.replace(/'/g,\"\\\\'\") }}' LIMIT 1",
-    "resource": "search"
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 1.1,
-   "alwaysOutputData": true,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "f64fcc99-ce11-468b-8a38-1ec501a86d5e",
-   "name": "Lead Found?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    1856,
-    -528
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "leadfound1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.Id }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "e7681f20-bc85-447e-ae17-be62fed03453",
-   "name": "Create Lead",
-   "type": "n8n-nodes-base.salesforce",
-   "onError": "continueRegularOutput",
-   "maxTries": 3,
-   "position": [
-    2064,
-    -352
-   ],
-   "parameters": {
-    "company": "={{ $('Extract Confirmed Contacts').item.json.company }}",
-    "lastname": "={{ $('Extract Confirmed Contacts').item.json.lastname }}",
-    "additionalFields": {
-     "title": "={{ $('Extract Confirmed Contacts').item.json.title }}",
-     "firstname": "={{ $('Extract Confirmed Contacts').item.json.firstname }}",
-     "description": "={{ $('Extract Confirmed Contacts').item.json.focus_area }}"
-    }
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 1.1,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "26c6181c-2fcd-4933-ae0b-294c9435cac4",
-   "name": "Add Existing Lead To Campaign",
-   "type": "n8n-nodes-base.salesforce",
-   "onError": "continueRegularOutput",
-   "maxTries": 3,
-   "position": [
-    2496,
-    -544
-   ],
-   "parameters": {
-    "leadId": "={{ $json.Id }}",
-    "options": {},
-    "operation": "addToCampaign",
-    "campaignId": "={{ $('Extract Confirmed Contacts').item.json.campaign_salesforce_id }}"
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 1.1,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "ceeda4f7-5d14-4ee9-824a-164278024967",
-   "name": "Add New Lead To Campaign",
-   "type": "n8n-nodes-base.salesforce",
-   "onError": "continueRegularOutput",
-   "maxTries": 3,
-   "position": [
-    2624,
-    -352
-   ],
-   "parameters": {
-    "leadId": "={{ $json.id }}",
-    "options": {},
-    "operation": "addToCampaign",
-    "campaignId": "={{ $('Extract Confirmed Contacts').item.json.campaign_salesforce_id }}"
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
-    }
-   },
-   "retryOnFail": true,
-   "typeVersion": 1.1,
-   "waitBetweenTries": 2000
-  },
-  {
-   "id": "0369df12-1c0e-43d0-9fa4-f4c2ff850408",
-   "name": "Loop Contacts",
-   "type": "n8n-nodes-base.splitInBatches",
-   "position": [
-    1088,
-    -544
-   ],
-   "parameters": {
-    "options": {}
-   },
-   "typeVersion": 3
-  },
-  {
-   "id": "9c901e69-d00f-457d-b0df-b9102a751d0e",
-   "name": "Action Updated?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    432,
-    -400
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "actionupd1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.id }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "bea3efc0-f86b-489c-8d95-ff4d63bca39a",
-   "name": "Respond Already Processed",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    608,
-    -144
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "This action has already been processed."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "5a62834a-7f0b-4b82-8656-61f922063937",
-   "name": "Record Lead Mapping (Existing)",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    2192,
-    -528
-   ],
-   "parameters": {
-    "query": "INSERT INTO salesforce_leads (account, contact_name, salesforce_lead_id, campaign_id)\nSELECT '{{ $('Mark Executed').first().json.account.replace(/'/g, \"''\") }}',\n       '{{ ($('Extract Confirmed Contacts').item.json.firstname + \" \" + $('Extract Confirmed Contacts').item.json.lastname).trim().replace(/'/g, \"''\") }}',\n       '{{ $json.Id }}',\n       {{ $('Mark Executed').first().json.campaign_id }}\nWHERE NOT EXISTS (SELECT 1 FROM salesforce_leads WHERE salesforce_lead_id = '{{ $json.Id }}');",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "cb70887a-beba-4657-9c38-b3d7c6fd67d2",
-   "name": "Record Lead Mapping (New)",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    2336,
-    -352
-   ],
-   "parameters": {
-    "query": "INSERT INTO salesforce_leads (account, contact_name, salesforce_lead_id, campaign_id)\nSELECT '{{ $('Mark Executed').first().json.account.replace(/'/g, \"''\") }}',\n       '{{ ($('Extract Confirmed Contacts').item.json.firstname + \" \" + $('Extract Confirmed Contacts').item.json.lastname).trim().replace(/'/g, \"''\") }}',\n       '{{ $json.id }}',\n       {{ $('Mark Executed').first().json.campaign_id }}\nWHERE NOT EXISTS (SELECT 1 FROM salesforce_leads WHERE salesforce_lead_id = '{{ $json.id }}');",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "97a2c41f-f129-4b7a-a838-e99b14111389",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    -496,
-    -16
-   ],
-   "parameters": {
-    "query": "select\n  (select value from app_config where key='approval_hmac_secret') as value,\n  (select value from app_config where key='rep_notification_email') as rep_email;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "3a7d9d58-c03b-4ab8-997a-8c383a3971ae",
-   "name": "Cancel Updated?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    416,
-    112
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "cancelupd1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.id }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "68a3ba02-88cf-43bc-ae10-05993db386f7",
-   "name": "Rep Email Set?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    1072,
-    -224
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "repemail1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ ($('Mark Executed').first().json.rep_email_resolved || '').trim() }}",
-       "rightValue": ""
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "10378324-298e-4775-916a-2eb2c0b3d050",
+              "leftValue": "={{ $json.query.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      {
-       "id": "repemail2",
-       "operator": {
-        "type": "string",
-        "operation": "notEquals"
-       },
-       "leftValue": "={{ $('Verify Signature').first().json.query.src }}",
-       "rightValue": "auto"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "6eb874ce-bb64-4c11-912b-ab99e8cc1f8d",
-   "name": "Record Task Id",
-   "type": "n8n-nodes-base.postgres",
-   "onError": "continueRegularOutput",
-   "position": [
-    896,
-    -240
-   ],
-   "parameters": {
-    "query": "UPDATE actions\nSET salesforce_task_id = '{{ $json.id }}'\nWHERE id = {{ $('Mark Executed').first().json.id }}\n  AND '{{ $json.id }}' ~ '^00T';",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "71949e8a-4876-4855-8968-1e6e7b77a00a",
-   "name": "SF Sync Error?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    2400,
-    -120
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "sferr1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.error ? 'yes' : '' }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "be2caa00-b946-4c42-b229-bd4b343c9a4f",
-   "name": "Log SF Sync Error",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    2620,
-    -200
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "pipeline_errors",
-     "cachedResultName": "pipeline_errors"
+      "id": "da688a40-7916-4e59-bba5-f21ba27413d2",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        48,
+        -16
+      ]
     },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions\nSET status = 'executed', executed_at = now(), decided_at = now()\nWHERE id = {{ $json.query.id }} AND status <> 'executed'\nRETURNING id, account, action_type, target, priority, reason, hypothesis, tracked_url, outreach_draft, campaign_id,\n  (select raw_payload from pipeline_runs where id = actions.run_id) as raw_payload,\n  (select salesforce_campaign_id from campaigns where id = actions.campaign_id) as salesforce_campaign_id,\n  coalesce(nullif((select c.rep_email from clients c where c.id = actions.client_id), ''), (select value from app_config where key='rep_notification_email')) as rep_email_resolved;",
+        "options": {}
+      },
+      "id": "c77d1551-11f4-4427-a15a-bc9d57cf937e",
+      "name": "Mark Executed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        304,
+        -128
+      ]
     },
-    "columns": {
-     "value": {
-      "phase": "action-sync",
-      "company": "={{ $('Mark Executed').first().json.account || 'unknown' }}",
-      "resolved": false,
-      "error_msg": "={{ $json.error?.message || $json.error?.description || JSON.stringify($json.error || {}) }}",
-      "node_name": "Salesforce sync (Action Approval Handler)",
-      "occurred_at": "={{ $now.toISO() }}"
-     },
-     "schema": [
-      {
-       "id": "id",
-       "type": "number",
-       "display": true,
-       "removed": true,
-       "required": false,
-       "displayName": "id",
-       "defaultMatch": true,
-       "canBeUsedToMatch": true
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions\nSET status = 'cancelled',\n    rejection_reason = NULLIF('{{ $json.query.reason }}', ''),\n    rejection_routed_to = CASE\n      WHEN '{{ $json.query.reason }}' IN ('stale_fact', 'wrong_contact', 'incorrect_information') THEN 'source'\n      WHEN '{{ $json.query.reason }}' = '' THEN NULL\n      ELSE 'engine_logic' END,\n    decided_at = now()\nWHERE id = {{ $json.query.id }} AND status = 'recommended'\nRETURNING id, account, rejection_reason, rejection_routed_to, (select raw_payload from pipeline_runs where id = actions.run_id) as raw_payload, (select value from app_config where key='when_engine_url') as when_engine_url;",
+        "options": {}
       },
-      {
-       "id": "occurred_at",
-       "type": "dateTime",
-       "display": true,
-       "required": false,
-       "displayName": "occurred_at",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
+      "id": "8e31943e-6bbb-46b0-8c45-49e2ad18faea",
+      "name": "Mark Cancelled",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        288,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Mark Executed').first().json.rep_email_resolved }}",
+        "subject": "=Approved action for {{ $('Mark Executed').first().json.account }}",
+        "emailType": "text",
+        "message": "=Action: {{ $('Mark Executed').first().json.action_type }} for {{ $('Mark Executed').first().json.account }}\nHypothesis: {{ $('Mark Executed').first().json.hypothesis }}\n\n— Suggested message (WHEN engine draft) —\n{{ $('Mark Executed').first().json.outreach_draft || '(none provided — write your own)' }}\n\nTracked link to include in your outreach: {{ $('Mark Executed').first().json.tracked_url }}",
+        "options": {}
       },
-      {
-       "id": "company",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "company",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
+      "id": "b653a12f-0ff7-4087-bbd9-ca959cf5333e",
+      "name": "Send Action to Rep",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        -144
+      ],
+      "webhookId": "0a49e9f0-0bfb-4f25-a5a1-3f484faa2843",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✓ Approved — action {{ $('Mark Executed').first().json.id }} for {{ $('Mark Executed').first().json.account }} will be executed.",
+        "options": {}
       },
-      {
-       "id": "phase",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "phase",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
+      "id": "66008ac9-54f3-4897-9fde-8460017fa5ff",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✕ Action rejected — forwarded to WHEN Engine for re-decision.",
+        "options": {}
       },
-      {
-       "id": "node_name",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "node_name",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
+      "id": "6adff059-dc68-4cfa-8e56-ba0361a3dd27",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nif (!brief || typeof brief !== 'object') {\n  brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.account || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n}\nbrief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\nbrief.human_signals.push({ type:'human_rejection', gate:'action', reason: row.rejection_reason || 'rejected_by_human', routed_to: row.rejection_routed_to || 'engine_logic', rejected_at:new Date().toISOString(), source:'delivery_layer', action_id: row.id });\nreturn [{ json: { when_engine_url: row.when_engine_url || '', payload: brief } }];"
       },
-      {
-       "id": "error_msg",
-       "type": "string",
-       "display": true,
-       "required": false,
-       "displayName": "error_msg",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
+      "id": "3e7804e3-389c-452e-9c6e-e70ba79be005",
+      "name": "Build WHEN Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "u1",
+              "leftValue": "={{ $json.when_engine_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      {
-       "id": "resolved",
-       "type": "boolean",
-       "display": true,
-       "required": false,
-       "displayName": "resolved",
-       "defaultMatch": false,
-       "canBeUsedToMatch": true
+      "id": "82464671-93aa-4840-8aa5-324fdc63874a",
+      "name": "Engine URL set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        816,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.when_engine_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "f056fc56-274b-42db-bdbf-5fded07066c7",
+      "name": "Forward to WHEN Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1168,
+        48
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "status": "Not Started",
+        "additionalFields": {
+          "activityDate": "={{ $today.plus({ days: 7 }) }}",
+          "description": "={{ $('Mark Executed').first().json.reason }}\n\nHypothesis: {{ $('Mark Executed').first().json.hypothesis }}\nTracked link: {{ $('Mark Executed').first().json.tracked_url }}",
+          "priority": "Normal",
+          "subject": "=P{{ $('Mark Executed').first().json.priority }} {{ $('Mark Executed').first().json.action_type }} → {{ $('Mark Executed').first().json.target }}",
+          "whatId": "={{ $json.salesforce_campaign_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        -256
+      ],
+      "id": "2260bff0-16a3-4cf0-89ce-e073429598f6",
+      "name": "Create a task",
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`action:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst q = ($('Webhook (approve/reject)').item.json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst rawReason = q.reason || '';\nconst reason = String(rawReason).replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100);\n// src is metadata only (not part of the signature): 'auto' marks approvals fired\n// by the Cadence Scheduler's campaign-level auto-execution, so the per-action\n// rep email can be suppressed (the daily digest already carries the draft).\nconst src = q.src === 'auto' ? 'auto' : '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid, query: { id: idOk ? id : '', action: actionOk ? action : '', reason, src } } }];"
+      },
+      "id": "027c8387-bf8b-42d6-97a7-d82d1fc4b132",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "sigvalid1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "31c06099-bdee-4db6-afb8-a382bfadc514",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -144,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✕ Invalid or expired approval link.",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "1592e77a-cbf6-40e9-b597-4cbb34bdd603",
+      "name": "Respond Invalid Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $('Mark Executed').first().json;\nconst campaignSfId = row.salesforce_campaign_id || '';\nif (!campaignSfId) return [];\n\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nconst buyingGroup = (brief && Array.isArray(brief.buying_group)) ? brief.buying_group : [];\nconst account = (row.account || '').trim();\n\nconst confirmed = buyingGroup.filter(c => c && c.status === 'CONFIRMED' && typeof c.name === 'string' && c.name.trim());\n\nreturn confirmed.map(c => {\n  const parts = c.name.trim().split(/\\s+/);\n  let firstname = '', lastname = '';\n  if (parts.length > 1) {\n    lastname = parts.pop();\n    firstname = parts.join(' ');\n  } else {\n    lastname = parts[0] || '';\n  }\n  return { json: {\n    firstname, lastname, company: account,\n    title: c.title || '', focus_area: c.focus_area || '',\n    campaign_salesforce_id: campaignSfId\n  }};\n});"
+      },
+      "id": "3a6ab242-fa8e-47d3-97d0-bd88a320f106",
+      "name": "Extract Confirmed Contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "search",
+        "query": "=SELECT Id FROM Lead WHERE FirstName = '{{ $json.firstname.replace(/'/g,\"\\\\'\") }}' AND LastName = '{{ $json.lastname.replace(/'/g,\"\\\\'\") }}' AND Company = '{{ $json.company.replace(/'/g,\"\\\\'\") }}' LIMIT 1"
+      },
+      "id": "c76bb5cd-46c6-438e-aa13-b4f32fb309ea",
+      "name": "Find Existing Lead",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        1456,
+        -528
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "leadfound1",
+              "leftValue": "={{ $json.Id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f64fcc99-ce11-468b-8a38-1ec501a86d5e",
+      "name": "Lead Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1856,
+        -528
+      ]
+    },
+    {
+      "parameters": {
+        "company": "={{ $('Extract Confirmed Contacts').item.json.company }}",
+        "lastname": "={{ $('Extract Confirmed Contacts').item.json.lastname }}",
+        "additionalFields": {
+          "description": "={{ $('Extract Confirmed Contacts').item.json.focus_area }}",
+          "firstname": "={{ $('Extract Confirmed Contacts').item.json.firstname }}",
+          "title": "={{ $('Extract Confirmed Contacts').item.json.title }}"
+        }
+      },
+      "id": "e7681f20-bc85-447e-ae17-be62fed03453",
+      "name": "Create Lead",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        2064,
+        -352
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "addToCampaign",
+        "leadId": "={{ $json.Id }}",
+        "campaignId": "={{ $('Extract Confirmed Contacts').item.json.campaign_salesforce_id }}",
+        "options": {}
+      },
+      "id": "26c6181c-2fcd-4933-ae0b-294c9435cac4",
+      "name": "Add Existing Lead To Campaign",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        2496,
+        -544
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "addToCampaign",
+        "leadId": "={{ $json.id }}",
+        "campaignId": "={{ $('Extract Confirmed Contacts').item.json.campaign_salesforce_id }}",
+        "options": {}
+      },
+      "id": "ceeda4f7-5d14-4ee9-824a-164278024967",
+      "name": "Add New Lead To Campaign",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        2624,
+        -352
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "0369df12-1c0e-43d0-9fa4-f4c2ff850408",
+      "name": "Loop Contacts",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1088,
+        -544
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "actionupd1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9c901e69-d00f-457d-b0df-b9102a751d0e",
+      "name": "Action Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "This action has already been processed.",
+        "options": {}
+      },
+      "id": "bea3efc0-f86b-489c-8d95-ff4d63bca39a",
+      "name": "Respond Already Processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO salesforce_leads (account, contact_name, salesforce_lead_id, campaign_id)\nSELECT '{{ $('Mark Executed').first().json.account.replace(/'/g, \"''\") }}',\n       '{{ ($('Extract Confirmed Contacts').item.json.firstname + \" \" + $('Extract Confirmed Contacts').item.json.lastname).trim().replace(/'/g, \"''\") }}',\n       '{{ $json.Id }}',\n       {{ $('Mark Executed').first().json.campaign_id }}\nWHERE NOT EXISTS (SELECT 1 FROM salesforce_leads WHERE salesforce_lead_id = '{{ $json.Id }}');",
+        "options": {}
+      },
+      "id": "5a62834a-7f0b-4b82-8656-61f922063937",
+      "name": "Record Lead Mapping (Existing)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2192,
+        -528
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO salesforce_leads (account, contact_name, salesforce_lead_id, campaign_id)\nSELECT '{{ $('Mark Executed').first().json.account.replace(/'/g, \"''\") }}',\n       '{{ ($('Extract Confirmed Contacts').item.json.firstname + \" \" + $('Extract Confirmed Contacts').item.json.lastname).trim().replace(/'/g, \"''\") }}',\n       '{{ $json.id }}',\n       {{ $('Mark Executed').first().json.campaign_id }}\nWHERE NOT EXISTS (SELECT 1 FROM salesforce_leads WHERE salesforce_lead_id = '{{ $json.id }}');",
+        "options": {}
+      },
+      "id": "cb70887a-beba-4657-9c38-b3d7c6fd67d2",
+      "name": "Record Lead Mapping (New)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2336,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select value from app_config where key='approval_hmac_secret') as value,\n  (select value from app_config where key='rep_notification_email') as rep_email;",
+        "options": {}
+      },
+      "id": "97a2c41f-f129-4b7a-a838-e99b14111389",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -496,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cancelupd1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3a7d9d58-c03b-4ab8-997a-8c383a3971ae",
+      "name": "Cancel Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "repemail1",
+              "leftValue": "={{ ($('Mark Executed').first().json.rep_email_resolved || '').trim() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "repemail2",
+              "leftValue": "={{ $('Verify Signature').first().json.query.src }}",
+              "rightValue": "auto",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "68a3ba02-88cf-43bc-ae10-05993db386f7",
+      "name": "Rep Email Set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1072,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE actions\nSET salesforce_task_id = '{{ $json.id }}'\nWHERE id = {{ $('Mark Executed').first().json.id }}\n  AND '{{ $json.id }}' ~ '^00T';",
+        "options": {}
+      },
+      "id": "6eb874ce-bb64-4c11-912b-ab99e8cc1f8d",
+      "name": "Record Task Id",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "71949e8a-4876-4855-8968-1e6e7b77a00a",
+      "name": "SF Sync Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2400,
+        -120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "sferr1",
+              "leftValue": "={{ $json.error ? 'yes' : '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       }
-     ],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [
-      "id"
-     ],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
     },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "a60594ed-2c2a-49f0-bc1c-4e4e0d12ad8b",
-   "name": "Email Action?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    980,
-    -380
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "emailact1",
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $('Mark Executed').first().json.action_type }}",
-       "rightValue": "email"
+    {
+      "id": "be2caa00-b946-4c42-b229-bd4b343c9a4f",
+      "name": "Log SF Sync Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2620,
+        -200
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "pipeline_errors",
+          "mode": "list",
+          "cachedResultName": "pipeline_errors"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "resolved": false,
+            "error_msg": "={{ $json.error?.message || $json.error?.description || JSON.stringify($json.error || {}) }}",
+            "node_name": "Salesforce sync (Action Approval Handler)",
+            "occurred_at": "={{ $now.toISO() }}",
+            "company": "={{ $('Mark Executed').first().json.account || 'unknown' }}",
+            "phase": "action-sync"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "occurred_at",
+              "displayName": "occurred_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phase",
+              "displayName": "phase",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "node_name",
+              "displayName": "node_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_msg",
+              "displayName": "error_msg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolved",
+              "displayName": "resolved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
       }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "533ae388-3b9e-4a78-b436-1117f8da8366",
-   "name": "Create Ready-to-Send Draft",
-   "type": "n8n-nodes-base.gmail",
-   "onError": "continueRegularOutput",
-   "maxTries": 2,
-   "position": [
-    1180,
-    -420
-   ],
-   "webhookId": "d7da3f57-4a32-4ef4-88ed-522cffa218bc",
-   "parameters": {
-    "message": "={{ $('Mark Executed').first().json.outreach_draft || 'No AI draft was generated for this touch — write your own. Reason for the touch: ' + ($('Mark Executed').first().json.reason || '') }}\n\n{{ $('Mark Executed').first().json.tracked_url }}",
-    "options": {
-     "sendTo": "={{ (($('Mark Executed').first().json.target || '').includes('@')) ? $('Mark Executed').first().json.target : '' }}"
     },
-    "subject": "=Design Prodigy × {{ $('Mark Executed').first().json.account }}",
-    "resource": "draft",
-    "emailType": "text",
-    "operation": "create"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
+    {
+      "id": "a60594ed-2c2a-49f0-bc1c-4e4e0d12ad8b",
+      "name": "Email Action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        980,
+        -380
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "emailact1",
+              "leftValue": "={{ $('Mark Executed').first().json.action_type }}",
+              "rightValue": "email",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "533ae388-3b9e-4a78-b436-1117f8da8366",
+      "name": "Create Ready-to-Send Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1180,
+        -420
+      ],
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "=Design Prodigy × {{ $('Mark Executed').first().json.account }}",
+        "emailType": "text",
+        "message": "={{ $('Mark Executed').first().json.outreach_draft || 'No AI draft was generated for this touch — write your own. Reason for the touch: ' + ($('Mark Executed').first().json.reason || '') }}\n\n{{ $('Mark Executed').first().json.tracked_url }}",
+        "options": {
+          "sendTo": "={{ (($('Mark Executed').first().json.target || '').includes('@')) ? $('Mark Executed').first().json.target : '' }}"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "webhookId": "d7da3f57-4a32-4ef4-88ed-522cffa218bc"
     }
-   },
-   "retryOnFail": true,
-   "typeVersion": 2.2,
-   "waitBetweenTries": 1000
+  ],
+  "connections": {
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark Executed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Action to Rep": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WHEN Feedback": {
+      "main": [
+        [
+          {
+            "node": "Engine URL set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine URL set?": {
+      "main": [
+        [
+          {
+            "node": "Forward to WHEN Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to WHEN Engine": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Lead": {
+      "main": [
+        [
+          {
+            "node": "Lead Found?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SF Sync Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Found?": {
+      "main": [
+        [
+          {
+            "node": "Record Lead Mapping (Existing)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Confirmed Contacts": {
+      "main": [
+        [
+          {
+            "node": "Loop Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Contacts": {
+      "main": [
+        null,
+        [
+          {
+            "node": "Find Existing Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Existing Lead To Campaign": {
+      "main": [
+        [
+          {
+            "node": "Loop Contacts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SF Sync Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add New Lead To Campaign": {
+      "main": [
+        [
+          {
+            "node": "Loop Contacts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SF Sync Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Executed": {
+      "main": [
+        [
+          {
+            "node": "Action Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Updated?": {
+      "main": [
+        [
+          {
+            "node": "Create a task",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract Confirmed Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Lead Mapping (Existing)": {
+      "main": [
+        [
+          {
+            "node": "Add Existing Lead To Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Lead": {
+      "main": [
+        [
+          {
+            "node": "Record Lead Mapping (New)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SF Sync Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Lead Mapping (New)": {
+      "main": [
+        [
+          {
+            "node": "Add New Lead To Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (approve/reject)": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Cancelled": {
+      "main": [
+        [
+          {
+            "node": "Cancel Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Updated?": {
+      "main": [
+        [
+          {
+            "node": "Build WHEN Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rep Email Set?": {
+      "main": [
+        [
+          {
+            "node": "Send Action to Rep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a task": {
+      "main": [
+        [
+          {
+            "node": "Record Task Id",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SF Sync Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SF Sync Error?": {
+      "main": [
+        [
+          {
+            "node": "Log SF Sync Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Task Id": {
+      "main": [
+        [
+          {
+            "node": "Email Action?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Action?": {
+      "main": [
+        [
+          {
+            "node": "Create Ready-to-Send Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rep Email Set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Ready-to-Send Draft": {
+      "main": [
+        [
+          {
+            "node": "Rep Email Set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Approved?": {
-   "main": [
-    [
-     {
-      "node": "Mark Executed",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Mark Cancelled",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Create Lead": {
-   "main": [
-    [
-     {
-      "node": "Record Lead Mapping (New)",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "SF Sync Error?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Lead Found?": {
-   "main": [
-    [
-     {
-      "node": "Record Lead Mapping (Existing)",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Create Lead",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Create a task": {
-   "main": [
-    [
-     {
-      "node": "Record Task Id",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "SF Sync Error?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Email Action?": {
-   "main": [
-    [
-     {
-      "node": "Create Ready-to-Send Draft",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Rep Email Set?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Loop Contacts": {
-   "main": [
-    null,
-    [
-     {
-      "node": "Find Existing Lead",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Executed": {
-   "main": [
-    [
-     {
-      "node": "Action Updated?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Cancelled": {
-   "main": [
-    [
-     {
-      "node": "Cancel Updated?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Record Task Id": {
-   "main": [
-    [
-     {
-      "node": "Email Action?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Rep Email Set?": {
-   "main": [
-    [
-     {
-      "node": "Send Action to Rep",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Approved",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "SF Sync Error?": {
-   "main": [
-    [
-     {
-      "node": "Log SF Sync Error",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Action Updated?": {
-   "main": [
-    [
-     {
-      "node": "Create a task",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Extract Confirmed Contacts",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Already Processed",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Cancel Updated?": {
-   "main": [
-    [
-     {
-      "node": "Build WHEN Feedback",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Already Processed",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Engine URL set?": {
-   "main": [
-    [
-     {
-      "node": "Forward to WHEN Engine",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Verify Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Signature Valid?": {
-   "main": [
-    [
-     {
-      "node": "Approved?",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Invalid Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Verify Signature": {
-   "main": [
-    [
-     {
-      "node": "Signature Valid?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Find Existing Lead": {
-   "main": [
-    [
-     {
-      "node": "Lead Found?",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "SF Sync Error?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Send Action to Rep": {
-   "main": [
-    [
-     {
-      "node": "Respond Approved",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build WHEN Feedback": {
-   "main": [
-    [
-     {
-      "node": "Engine URL set?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Forward to WHEN Engine": {
-   "main": [
-    [
-     {
-      "node": "Respond Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Add New Lead To Campaign": {
-   "main": [
-    [
-     {
-      "node": "Loop Contacts",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "SF Sync Error?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Webhook (approve/reject)": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Record Lead Mapping (New)": {
-   "main": [
-    [
-     {
-      "node": "Add New Lead To Campaign",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Create Ready-to-Send Draft": {
-   "main": [
-    [
-     {
-      "node": "Rep Email Set?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Extract Confirmed Contacts": {
-   "main": [
-    [
-     {
-      "node": "Loop Contacts",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Add Existing Lead To Campaign": {
-   "main": [
-    [
-     {
-      "node": "Loop Contacts",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "SF Sync Error?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Record Lead Mapping (Existing)": {
-   "main": [
-    [
-     {
-      "node": "Add Existing Lead To Campaign",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "UyplqAAHgTNOvRuC",
-  "activeAtExport": true
- }
 }

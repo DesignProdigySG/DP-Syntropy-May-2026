@@ -1,488 +1,458 @@
 {
- "name": "LinkedIn Post Approval Handler",
- "nodes": [
-  {
-   "id": "90ef5e6e-bf4a-441d-9f08-6b4883552458",
-   "name": "Webhook (post approval)",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    0,
-    240
-   ],
-   "webhookId": "4c3892c4-cca7-4c10-bdbf-02ec222d1853",
-   "parameters": {
-    "path": "linkedin-post-approval",
-    "options": {},
-    "httpMethod": "GET",
-    "responseMode": "responseNode"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "3e7f1658-b7c7-4aa1-ba05-35b1d013d4a8",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    240
-   ],
-   "parameters": {
-    "query": "select (select value from app_config where key='approval_hmac_secret') as value, (select value from app_config where key='rep_notification_email') as rep_email;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "62a5162a-7a3a-4be7-a85a-f33b19a57220",
-   "name": "Verify Signature",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    448,
-    240
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) { return crypto.createHmac('sha256', SECRET).update('linkedin_post:' + id + ':' + action).digest('hex').slice(0, 32); }\nconst q = ($('Webhook (post approval)').item.json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid: valid, id: idOk ? id : '', action: actionOk ? action : '' } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "a81bb8f6-dcf0-4f16-b32a-8b50ac8895e9",
-   "name": "Signature Valid?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    672,
-    240
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "operator": {
-        "type": "boolean",
-        "operation": "true",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.valid }}"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "1adc8eb3-e037-49fa-ac0b-121db0d4ad6d",
-   "name": "Approved?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    896,
-    144
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.action }}",
-       "rightValue": "approve"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "43d7a51f-8b56-4438-a9b3-5acd1d188277",
-   "name": "Mark Approved",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1120,
-    0
-   ],
-   "parameters": {
-    "query": "=UPDATE linkedin_posts SET status='approved', decided_at=now() WHERE id = {{ $json.id }} AND status='pending_approval' RETURNING id, account, topic, post_body, tracked_url;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6,
-   "alwaysOutputData": true
-  },
-  {
-   "id": "3d6733aa-7be8-4c33-8b93-97a6ee53a793",
-   "name": "Approved Updated?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    1344,
-    0
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.id }}"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "0cf34bf5-7235-416f-ad9c-fd7f5309a6a2",
-   "name": "Build Publish Email",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1568,
-    0
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const row = $json;\nconst NL = String.fromCharCode(10);\nconst subject = 'Approved — post to LinkedIn' + (row.account ? (' (' + row.account + ')') : '');\nconst parts = [];\nparts.push('This LinkedIn post was approved. Please publish it to LinkedIn:');\nparts.push('');\nparts.push(row.post_body || '');\nif (row.tracked_url) parts.push('Include this link: ' + row.tracked_url);\nparts.push('');\nparts.push('(Optional) reply with the live post URL so its engagement can be tracked.');\nreturn [{ json: { subject: subject, message: parts.join(NL) } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "7ac7205e-4458-448e-9f5a-fe7e8f67976d",
-   "name": "Send Publish Email",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    1792,
-    0
-   ],
-   "webhookId": "908a075e-f929-410f-85e7-d432e77af5f4",
-   "parameters": {
-    "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
-    "message": "={{ $json.message }}",
-    "options": {},
-    "subject": "={{ $json.subject }}",
-    "resource": "message",
-    "emailType": "text",
-    "operation": "send"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "9bd60ebe-d2b9-4e1d-b29a-bc39b3eaf5e4",
-   "name": "Respond Approved",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    2016,
-    0
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "✓ Approved — the post has been sent to you to publish on LinkedIn."
-   },
-   "typeVersion": 1.5
-  },
-  {
-   "id": "c99ae8ea-4032-4f7e-bd3c-761781874820",
-   "name": "Respond Already Processed",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    1568,
-    192
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "This post has already been decided."
-   },
-   "typeVersion": 1.5
-  },
-  {
-   "id": "9c3975b7-4e22-4783-b1e8-a36e91f4a15d",
-   "name": "Mark Rejected",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1120,
-    336
-   ],
-   "parameters": {
-    "query": "=UPDATE linkedin_posts SET status='rejected', decided_at=now() WHERE id = {{ $json.id }} AND status='pending_approval' RETURNING id;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6,
-   "alwaysOutputData": true
-  },
-  {
-   "id": "9b7396cf-0b0b-4559-a0ef-1fe5cee4392b",
-   "name": "Rejected Updated?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    1344,
-    336
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.id }}"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "620c9807-88fe-47a3-97a8-9b3ace462faa",
-   "name": "Respond Rejected",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    1568,
-    384
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "✕ Rejected — the draft post was discarded."
-   },
-   "typeVersion": 1.5
-  },
-  {
-   "id": "75b00d6a-0f65-426e-8943-f5d0bdc57ea0",
-   "name": "Respond Invalid",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    896,
-    336
-   ],
-   "parameters": {
-    "options": {
-     "responseCode": 403
+  "name": "LinkedIn Post Approval Handler",
+  "nodes": [
+    {
+      "id": "90ef5e6e-bf4a-441d-9f08-6b4883552458",
+      "name": "Webhook (post approval)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "linkedin-post-approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "4c3892c4-cca7-4c10-bdbf-02ec222d1853"
     },
-    "respondWith": "text",
-    "responseBody": "✕ Invalid or expired link."
-   },
-   "typeVersion": 1.5
+    {
+      "id": "3e7f1658-b7c7-4aa1-ba05-35b1d013d4a8",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        240
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select (select value from app_config where key='approval_hmac_secret') as value, (select value from app_config where key='rep_notification_email') as rep_email;",
+        "options": {}
+      }
+    },
+    {
+      "id": "62a5162a-7a3a-4be7-a85a-f33b19a57220",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) { return crypto.createHmac('sha256', SECRET).update('linkedin_post:' + id + ':' + action).digest('hex').slice(0, 32); }\nconst q = ($('Webhook (post approval)').item.json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid: valid, id: idOk ? id : '', action: actionOk ? action : '' } }];"
+      }
+    },
+    {
+      "id": "a81bb8f6-dcf0-4f16-b32a-8b50ac8895e9",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "1adc8eb3-e037-49fa-ac0b-121db0d4ad6d",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        144
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "approve"
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "43d7a51f-8b56-4438-a9b3-5acd1d188277",
+      "name": "Mark Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE linkedin_posts SET status='approved', decided_at=now() WHERE id = {{ $json.id }} AND status='pending_approval' RETURNING id, account, topic, post_body, tracked_url;",
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "3d6733aa-7be8-4c33-8b93-97a6ee53a793",
+      "name": "Approved Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "0cf34bf5-7235-416f-ad9c-fd7f5309a6a2",
+      "name": "Build Publish Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const row = $json;\nconst NL = String.fromCharCode(10);\nconst subject = 'Approved — post to LinkedIn' + (row.account ? (' (' + row.account + ')') : '');\nconst parts = [];\nparts.push('This LinkedIn post was approved. Please publish it to LinkedIn:');\nparts.push('');\nparts.push(row.post_body || '');\nif (row.tracked_url) parts.push('Include this link: ' + row.tracked_url);\nparts.push('');\nparts.push('(Optional) reply with the live post URL so its engagement can be tracked.');\nreturn [{ json: { subject: subject, message: parts.join(NL) } }];"
+      }
+    },
+    {
+      "id": "7ac7205e-4458-448e-9f5a-fe7e8f67976d",
+      "name": "Send Publish Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {}
+      },
+      "webhookId": "908a075e-f929-410f-85e7-d432e77af5f4"
+    },
+    {
+      "id": "9bd60ebe-d2b9-4e1d-b29a-bc39b3eaf5e4",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2016,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✓ Approved — the post has been sent to you to publish on LinkedIn.",
+        "options": {}
+      }
+    },
+    {
+      "id": "c99ae8ea-4032-4f7e-bd3c-761781874820",
+      "name": "Respond Already Processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1568,
+        192
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "This post has already been decided.",
+        "options": {}
+      }
+    },
+    {
+      "id": "9c3975b7-4e22-4783-b1e8-a36e91f4a15d",
+      "name": "Mark Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        336
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE linkedin_posts SET status='rejected', decided_at=now() WHERE id = {{ $json.id }} AND status='pending_approval' RETURNING id;",
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "9b7396cf-0b0b-4559-a0ef-1fe5cee4392b",
+      "name": "Rejected Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        336
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "620c9807-88fe-47a3-97a8-9b3ace462faa",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1568,
+        384
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✕ Rejected — the draft post was discarded.",
+        "options": {}
+      }
+    },
+    {
+      "id": "75b00d6a-0f65-426e-8943-f5d0bdc57ea0",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        336
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✕ Invalid or expired link.",
+        "options": {
+          "responseCode": 403
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook (post approval)": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Approved": {
+      "main": [
+        [
+          {
+            "node": "Approved Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved Updated?": {
+      "main": [
+        [
+          {
+            "node": "Build Publish Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Publish Email": {
+      "main": [
+        [
+          {
+            "node": "Send Publish Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Publish Email": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rejected": {
+      "main": [
+        [
+          {
+            "node": "Rejected Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rejected Updated?": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Approved?": {
-   "main": [
-    [
-     {
-      "node": "Mark Approved",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Mark Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Approved": {
-   "main": [
-    [
-     {
-      "node": "Approved Updated?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Rejected": {
-   "main": [
-    [
-     {
-      "node": "Rejected Updated?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Verify Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Signature Valid?": {
-   "main": [
-    [
-     {
-      "node": "Approved?",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Invalid",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Verify Signature": {
-   "main": [
-    [
-     {
-      "node": "Signature Valid?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Approved Updated?": {
-   "main": [
-    [
-     {
-      "node": "Build Publish Email",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Already Processed",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Rejected Updated?": {
-   "main": [
-    [
-     {
-      "node": "Respond Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Already Processed",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Send Publish Email": {
-   "main": [
-    [
-     {
-      "node": "Respond Approved",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Publish Email": {
-   "main": [
-    [
-     {
-      "node": "Send Publish Email",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Webhook (post approval)": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "B5XMs4A7UcrE3iCy",
-  "activeAtExport": true
- }
 }

@@ -1,1381 +1,1275 @@
 {
- "name": "Brief Approval Handler",
- "nodes": [
-  {
-   "id": "d64c299e-009e-4256-b227-33e7c39166a7",
-   "name": "Webhook (brief approve/reject)",
-   "type": "n8n-nodes-base.webhook",
-   "position": [
-    -880,
-    320
-   ],
-   "webhookId": "7de9758d-c4d6-41a2-bbd2-dc74b2b2d54a",
-   "parameters": {
-    "path": "brief-approval",
-    "options": {},
-    "responseMode": "responseNode"
-   },
-   "typeVersion": 2.1
-  },
-  {
-   "id": "cc11ada8-f6b6-496f-bac7-0ea180804aa4",
-   "name": "Approved?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    -192,
-    176
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "fd3fc150-2944-4330-aa89-c01f3746e6a3",
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.query.action }}",
-       "rightValue": "approve"
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "199a3492-bb50-48d4-8e2f-180a5e8c52c1",
-   "name": "Mark Brief Approved",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    0,
-    0
-   ],
-   "parameters": {
-    "query": "UPDATE pipeline_runs SET human_approved = true\nWHERE id = {{ $json.query.id }}\n  AND human_approved = false\n  AND coalesce(notes, '') NOT ILIKE '%reject%'\nRETURNING id, company, brief_s3_url, trigger_type, coverage_label, engaged_count, total_count, when_urgency, when_stage, raw_payload;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "b1f4627b-5a46-4016-b8a7-aca2527fd601",
-   "name": "Send Brief to Rep",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    480,
-    -16
-   ],
-   "webhookId": "c28cdde7-d983-4cbb-8115-263b06d2eed3",
-   "parameters": {
-    "sendTo": "honlamchia@gmail.com",
-    "message": "=Brief approved and released.\n\nCompany: {{ $json.company }}\nUrgency: {{ $json.when_urgency }} | Stage: {{ $json.when_stage }}\nBrief: {{ $json.brief_s3_url }}",
-    "options": {},
-    "subject": "=Brief Released — {{ $json.company }}",
-    "emailType": "text"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "0ba4c543-31c6-4a0b-98a8-6611e98234b9",
-   "name": "Recommend Action",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    2352,
-    -16
-   ],
-   "parameters": {
-    "jsCode": "// Action Recommendation Layer — driven by Parse AI Channel Plan's chosen channel sequence\n// (AI recommendation, Phase 5, with template-fallback if the AI call fails or returns invalid output).\nconst cfg = $('Get Config').first().json || {};\nlet ENV; try { ENV = $env.TRACKING_BASE_URL; } catch (e) { ENV = undefined; }\nconst baseUrl = (cfg.tracking_base_url && String(cfg.tracking_base_url).trim()) || ENV || 'https://example.com';\n\nconst item = $('Mark Brief Approved').first().json;\nconst account = item.company || 'unknown-account';\nconst runId   = item.id;\nconst campaignId = $('Insert Campaign').first().json.id;\n\nlet rp = {};\ntry { rp = typeof item.raw_payload === 'string' ? JSON.parse(item.raw_payload) : (item.raw_payload || {}); } catch (e) { rp = {}; }\nconst bg = Array.isArray(rp.buying_group) ? rp.buying_group : [];\nconst emailDraft = (rp.outreach && rp.outreach.action) || (rp.element_4 && rp.element_4.first_step) || '';\nconst theMove = (rp.element_4 && rp.element_4.the_move) || '';\n\nconst confirmed = bg.find(m => ['CONFIRMED','COMPLETE'].includes(String(m.status || '').toUpperCase()));\nconst primary = confirmed || bg[0] || { name: 'Primary contact (needs enrichment)', focus_area: '' };\nconst targetName = primary.name || 'Primary contact';\n\nconst META = {\n  linkedin_connect: { metric:'linkedin_accept', channel:'linkedin', medium:'connect',    web:false },\n  linkedin_engage:  { metric:'profile_visit',   channel:'linkedin', medium:'engage',     web:false },\n  email:            { metric:'reply_or_meeting',channel:'email',    medium:'outbound',   web:true  },\n  invite:           { metric:'registration',    channel:'email',    medium:'event',      web:true  },\n  landing_page:     { metric:'page_visits',     channel:'web',      medium:'landing',    web:true  },\n  content_download: { metric:'content_download', channel:'web',     medium:'content_dl', web:true  },\n  ads:              { metric:'page_visits',     channel:'ads',      medium:'retarget',   web:true  },\n  webinar:          { metric:'registration',    channel:'webinar',  medium:'invite',     web:true  },\n  phone:            { metric:'call_connected',  channel:'phone',    medium:'call',       web:false },\n  partner:          { metric:'partner_response',channel:'partner',  medium:'intro',      web:false }\n};\n\n// Plan now comes from Parse AI Channel Plan — either the AI-recommended channel sequence\n// (Phase 5: Channel recommendation AI) or, on AI failure/invalid output, the matched\n// campaign_templates row's steps unchanged (Select Campaign Template).\nconst planRow = $('Parse AI Channel Plan').first().json || {};\nlet steps = Array.isArray(planRow.steps) ? planRow.steps : [];\nif (steps.length === 0) {\n  // Fallback safety net if no plan came through at all (should not happen).\n  steps = [\n    { action_type:'linkedin_engage', reason:'Re-engage an already-warm contact', delay_days:0, channel_source:'template' },\n    { action_type:'email',           reason: theMove || 'Go direct for a meeting', delay_days:2, channel_source:'template' }\n  ];\n}\n\nreturn steps.map((s, i) => {\n  const type = s.action_type;\n  const m = META[type] || META.email;\n  const priority = i + 1;\n  const delay_days = typeof s.delay_days === 'number' ? s.delay_days : i * 3;\n  const scheduled_for = new Date(Date.now() + delay_days * 86400000).toISOString();\n  const rand = Math.random().toString(36).slice(2,5);\n  const utm_campaign = 'act-' + runId + '-p' + priority + '-' + rand;\n  const sep = baseUrl.includes('?') ? '&' : '?';\n  const tracked_url = m.web ? (baseUrl + sep + 'utm_source=' + m.channel + '&utm_medium=' + m.medium + '&utm_campaign=' + utm_campaign) : null;\n  const reason = (type === 'email' && theMove) ? theMove : (s.reason || '');\n  const hypothesis = '[P' + priority + '] ' + type.replace(/_/g,' ') + ' → ' + targetName + ' for ' + account + ': expect ' + m.metric.replace(/_/g,' ') + ' within 14 days.';\n  return { json: {\n    campaign_id: campaignId,\n    run_id: runId, account, target: targetName,\n    action_type: type, priority, reason,\n    delay_days, scheduled_for,\n    hypothesis, predicted_metric: m.metric, predicted_direction: 'increase',\n    threshold: 1, window_days: 14,\n    utm_campaign, tracked_url,\n    outreach_draft: type === 'email' ? emailDraft : '',\n    channel_source: s.channel_source || 'template',\n    channel_reco_reason: s.channel_reco_reason || null,\n    status: 'recommended'\n  }};\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "5d7ee377-a813-45e0-bf70-bddea65e964b",
-   "name": "Insert Action",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    2672,
-    -160
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "actions",
-     "cachedResultName": "actions"
-    },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
-    },
-    "columns": {
-     "value": {
-      "reason": "={{ $json.reason }}",
-      "run_id": "={{ $json.run_id }}",
-      "status": "={{ $json.status }}",
-      "target": "={{ $json.target }}",
-      "account": "={{ $json.account }}",
-      "priority": "={{ $json.priority }}",
-      "threshold": "={{ $json.threshold }}",
-      "hypothesis": "={{ $json.hypothesis }}",
-      "action_type": "={{ $json.action_type }}",
-      "campaign_id": "={{ $json.campaign_id }}",
-      "tracked_url": "={{ $json.tracked_url }}",
-      "window_days": "={{ $json.window_days }}",
-      "utm_campaign": "={{ $json.utm_campaign }}",
-      "channel_source": "={{ $json.channel_source }}",
-      "outreach_draft": "={{ $json.outreach_draft }}",
-      "predicted_metric": "={{ $json.predicted_metric }}",
-      "channel_reco_reason": "={{ $json.channel_reco_reason }}",
-      "predicted_direction": "={{ $json.predicted_direction }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
-    },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "a789c1aa-c7f0-45e4-a57e-a8ce00b61793",
-   "name": "Action Approval Email",
-   "type": "n8n-nodes-base.gmail",
-   "position": [
-    3120,
-    -80
-   ],
-   "webhookId": "f300b1ae-a972-47dd-b8a0-9ddae74ac2eb",
-   "parameters": {
-    "sendTo": "honlamchia@gmail.com",
-    "message": "={{ $json.message }}",
-    "options": {},
-    "subject": "=Action plan for {{ $json.account }} ({{ $json.count }} actions)",
-    "emailType": "text"
-   },
-   "credentials": {
-    "gmailOAuth2": {
-     "id": "vKMX1dZQWsi80BVz",
-     "name": "Gmail OAuth2 API"
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "0b3d0548-c4bc-4962-abc1-d61fa2ef347f",
-   "name": "Respond Approved",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    3360,
-    -80
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "=✓ Brief approved — prioritized action plan generated and sent for review."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "581dbf7a-d0a6-4565-bc0a-d3f704cda268",
-   "name": "Mark Brief Rejected",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    0,
-    368
-   ],
-   "parameters": {
-    "query": "UPDATE pipeline_runs SET notes = 'Brief rejected'\nWHERE id = {{ $json.query.id }}\n  AND human_approved = false\n  AND coalesce(notes, '') <> 'Brief rejected'\nRETURNING id, company, raw_payload, (select value from app_config where key='when_engine_url') as when_engine_url;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "3b70e17e-77f1-4484-afab-62c2d24941f4",
-   "name": "Respond Rejected",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    1600,
-    576
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "=✕ Brief rejected — forwarded to WHEN Engine for re-decision."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "e62961d5-779e-4ae2-b688-83b5db09d0f5",
-   "name": "Get Config",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    720,
-    -16
-   ],
-   "parameters": {
-    "query": "SELECT\n  max(value) filter (where key='tracking_base_url') as tracking_base_url,\n  max(value) filter (where key='ga4_property_id')  as ga4_property_id\nFROM app_config;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "4080737e-ef2e-4d14-aa7c-93d70d575fec",
-   "name": "Build WHEN Feedback",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    464,
-    560
-   ],
-   "parameters": {
-    "jsCode": "const row = $json;\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nif (!brief || typeof brief !== 'object') {\n  brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.company || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n}\nbrief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\nbrief.human_signals.push({ type:'human_rejection', gate:'brief', reason:'rejected_by_human', rejected_at:new Date().toISOString(), source:'delivery_layer', run_id: row.id });\nreturn [{ json: { when_engine_url: row.when_engine_url || '', payload: brief } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "9515a8c6-378a-40b8-af22-708a76214a56",
-   "name": "Engine URL set?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    736,
-    560
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "u1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.when_engine_url }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "f55843a2-d615-48bd-94ca-fbbd26737e14",
-   "name": "Forward to WHEN Engine",
-   "type": "n8n-nodes-base.httpRequest",
-   "onError": "continueRegularOutput",
-   "position": [
-    1152,
-    448
-   ],
-   "parameters": {
-    "url": "={{ $json.when_engine_url }}",
-    "method": "POST",
-    "options": {},
-    "jsonBody": "={{ JSON.stringify($json.payload) }}",
-    "sendBody": true,
-    "specifyBody": "json"
-   },
-   "typeVersion": 4.4
-  },
-  {
-   "id": "23a2b88b-9766-451e-87f1-a314cda6033e",
-   "name": "Summarize Plan",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    2896,
-    -80
-   ],
-   "parameters": {
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`action:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst rows = $('Insert Action').all().map(i => i.json);\nrows.sort((a,b) => (a.priority||0) - (b.priority||0));\nconst account = (rows[0] && rows[0].account) || 'account';\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nconst lines = rows.map(r =>\n  r.priority + '. [' + r.action_type + '] → ' + (r.target || 'target') + '\\n' +\n  '   ' + (r.reason || '') + '\\n' +\n  '   APPROVE: ' + base + '?id=' + r.id + '&action=approve&sig=' + sign(r.id, 'approve') + '\\n' +\n  '   REJECT:  ' + base + '?id=' + r.id + '&action=reject&sig=' + sign(r.id, 'reject')\n);\nconst message = 'Recommended action plan for ' + account + ' (' + rows.length + ' actions, prioritized):\\n\\n' + lines.join('\\n\\n');\nreturn [{ json: { account, count: rows.length, message } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "9cdd72c1-af6f-4cf2-90f8-65a24046ade4",
-   "name": "Verify Signature",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    -512,
-    320
-   ],
-   "parameters": {
-    "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`brief:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst q = ($('Webhook (brief approve/reject)').item.json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid, query: { id: idOk ? id : '', action: actionOk ? action : '' } } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "17c7ce26-057b-48bb-b234-a6efc0d52deb",
-   "name": "Signature Valid?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    -368,
-    320
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "sigvalid1",
-       "operator": {
-        "type": "boolean",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.valid }}",
-       "rightValue": true
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "c5379d61-2a89-46b1-a7fe-05c9879dbc97",
-   "name": "Respond Invalid Signature",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    -176,
-    480
-   ],
-   "parameters": {
-    "options": {
-     "responseCode": 403
-    },
-    "respondWith": "text",
-    "responseBody": "✕ Invalid or expired approval link."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "c6fbcf30-59ae-4643-8545-e8ba9d00159a",
-   "name": "Insert Campaign",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1184,
-    -16
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "campaigns",
-     "cachedResultName": "campaigns"
-    },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
-    },
-    "columns": {
-     "value": {
-      "run_id": "={{ $('Mark Brief Approved').first().json.id }}",
-      "status": "active",
-      "account": "={{ $('Mark Brief Approved').first().json.company }}",
-      "template_key": "={{ $('Select Campaign Template').first().json.key }}",
-      "template_match_trace": "={{ $('Build Template Match Trace').first().json.template_match_trace }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
-    },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "4c5d3c13-6d66-4076-838b-9b393eb326eb",
-   "name": "Due Now?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    2496,
-    -16
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "strict"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "duenow1",
-       "operator": {
-        "type": "number",
-        "operation": "equals"
-       },
-       "leftValue": "={{ $json.delay_days }}",
-       "rightValue": 0
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "174b3346-2584-4aca-8794-0446f71e88aa",
-   "name": "Insert Step Record (Immediate)",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    2896,
-    -336
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "cadence_steps",
-     "cachedResultName": "cadence_steps"
-    },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
-    },
-    "columns": {
-     "value": {
-      "reason": "={{ $json.reason }}",
-      "status": "recommended",
-      "target": "={{ $json.target }}",
-      "account": "={{ $json.account }}",
-      "action_id": "={{ $json.id }}",
-      "threshold": "={{ $json.threshold }}",
-      "delay_days": 0,
-      "hypothesis": "={{ $json.hypothesis }}",
-      "action_type": "={{ $json.action_type }}",
-      "campaign_id": "={{ $json.campaign_id }}",
-      "step_number": "={{ $json.priority }}",
-      "tracked_url": "={{ $json.tracked_url }}",
-      "window_days": "={{ $json.window_days }}",
-      "utm_campaign": "={{ $json.utm_campaign }}",
-      "scheduled_for": "={{ $now.toISO() }}",
-      "channel_source": "={{ $json.channel_source }}",
-      "outreach_draft": "={{ $json.outreach_draft }}",
-      "predicted_metric": "={{ $json.predicted_metric }}",
-      "channel_reco_reason": "={{ $json.channel_reco_reason }}",
-      "predicted_direction": "={{ $json.predicted_direction }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
-    },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "11622e70-974c-475d-a809-de4b2a436c8b",
-   "name": "Insert Cadence Steps (Scheduled)",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    2688,
-    64
-   ],
-   "parameters": {
-    "table": {
-     "__rl": true,
-     "mode": "list",
-     "value": "cadence_steps",
-     "cachedResultName": "cadence_steps"
-    },
-    "schema": {
-     "__rl": true,
-     "mode": "list",
-     "value": "public"
-    },
-    "columns": {
-     "value": {
-      "reason": "={{ $json.reason }}",
-      "status": "pending",
-      "target": "={{ $json.target }}",
-      "account": "={{ $json.account }}",
-      "threshold": "={{ $json.threshold }}",
-      "delay_days": "={{ $json.delay_days }}",
-      "hypothesis": "={{ $json.hypothesis }}",
-      "action_type": "={{ $json.action_type }}",
-      "campaign_id": "={{ $json.campaign_id }}",
-      "step_number": "={{ $json.priority }}",
-      "tracked_url": "={{ $json.tracked_url }}",
-      "window_days": "={{ $json.window_days }}",
-      "utm_campaign": "={{ $json.utm_campaign }}",
-      "scheduled_for": "={{ $json.scheduled_for }}",
-      "channel_source": "={{ $json.channel_source }}",
-      "outreach_draft": "={{ $json.outreach_draft }}",
-      "predicted_metric": "={{ $json.predicted_metric }}",
-      "channel_reco_reason": "={{ $json.channel_reco_reason }}",
-      "predicted_direction": "={{ $json.predicted_direction }}"
-     },
-     "schema": [],
-     "mappingMode": "defineBelow",
-     "matchingColumns": [],
-     "attemptToConvertTypes": false,
-     "convertFieldsToString": false
-    },
-    "options": {}
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "11ec31b8-04d7-4e26-b8c7-9087dd53f7e5",
-   "name": "Create Salesforce Campaign",
-   "type": "n8n-nodes-base.salesforce",
-   "onError": "continueErrorOutput",
-   "position": [
-    1344,
-    -272
-   ],
-   "parameters": {
-    "resource": "customObject",
-    "customObject": "Campaign",
-    "customFieldsUi": {
-     "customFieldsValues": [
-      {
-       "value": "={{ $('Mark Brief Approved').first().json.company }} — Run #{{ $('Mark Brief Approved').first().json.id }}",
-       "fieldId": "Name"
+  "name": "Brief Approval Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "brief-approval",
+        "responseMode": "responseNode",
+        "options": {}
       },
-      {
-       "value": "In Progress",
-       "fieldId": "Status"
+      "id": "d64c299e-009e-4256-b227-33e7c39166a7",
+      "name": "Webhook (brief approve/reject)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -880,
+        320
+      ],
+      "webhookId": "7de9758d-c4d6-41a2-bbd2-dc74b2b2d54a"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fd3fc150-2944-4330-aa89-c01f3746e6a3",
+              "leftValue": "={{ $json.query.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      {
-       "value": "Other",
-       "fieldId": "Type"
-      }
-     ]
+      "id": "cc11ada8-f6b6-496f-bac7-0ea180804aa4",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -192,
+        176
+      ]
     },
-    "additionalFields": {}
-   },
-   "credentials": {
-    "salesforceOAuth2Api": {
-     "id": "HPnx6HXN8COY4aOe",
-     "name": "Salesforce account 2"
-    }
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "8d4d4b3b-81fe-4ed5-b833-2de4e2b90dc2",
-   "name": "Mark Salesforce Synced",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1552,
-    -384
-   ],
-   "parameters": {
-    "query": "UPDATE campaigns SET salesforce_campaign_id = '{{ $json.id }}', salesforce_sync_status = 'synced', salesforce_synced_at = now() WHERE id = {{ $('Insert Campaign').first().json.id }};",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "78995152-e2b9-4d5b-933a-20836edc3755",
-   "name": "Mark Salesforce Sync Error",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1552,
-    -208
-   ],
-   "parameters": {
-    "query": "UPDATE campaigns SET salesforce_sync_status = 'error', salesforce_sync_error = $1 WHERE id = $2;",
-    "options": {
-     "queryReplacement": "={{ ($json.error && $json.error.message) || $json.message || 'Unknown Salesforce error' }}, {{ $('Insert Campaign').first().json.id }}"
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_runs SET human_approved = true\nWHERE id = {{ $json.query.id }}\n  AND human_approved = false\n  AND coalesce(notes, '') NOT ILIKE '%reject%'\nRETURNING id, company, brief_s3_url, trigger_type, coverage_label, engaged_count, total_count, when_urgency, when_stage, raw_payload;",
+        "options": {}
+      },
+      "id": "199a3492-bb50-48d4-8e2f-180a5e8c52c1",
+      "name": "Mark Brief Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ]
     },
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "7b23cf13-f98a-405a-b29c-06ece3a128e4",
-   "name": "Select Campaign Template",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    896,
-    -16
-   ],
-   "parameters": {
-    "query": "SELECT id, key, name, steps, priority FROM campaign_templates WHERE (match_urgency_in IS NULL OR upper($1) = ANY(match_urgency_in)) AND (match_coverage_in IS NULL OR upper($2) = ANY(match_coverage_in)) AND (match_stage_contains IS NULL OR upper($3) ILIKE '%' || upper(match_stage_contains) || '%') AND (match_keywords IS NULL OR EXISTS (SELECT 1 FROM unnest(match_keywords) kw WHERE $4 ILIKE '%'||kw||'%')) ORDER BY priority ASC;",
-    "options": {
-     "queryReplacement": "={{ [ $('Mark Brief Approved').first().json.when_urgency || '', $('Mark Brief Approved').first().json.coverage_label || '', $('Mark Brief Approved').first().json.when_stage || '', $('Mark Brief Approved').first().json.trigger_type || '' ] }}"
+    {
+      "parameters": {
+        "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
+        "subject": "=Brief Released — {{ $json.company }}",
+        "emailType": "text",
+        "message": "=Brief approved and released.\n\nCompany: {{ $json.company }}\nUrgency: {{ $json.when_urgency }} | Stage: {{ $json.when_stage }}\nBrief: {{ $json.brief_s3_url }}",
+        "options": {},
+        "resource": "message",
+        "operation": "send"
+      },
+      "id": "b1f4627b-5a46-4016-b8a7-aca2527fd601",
+      "name": "Send Brief to Rep",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        -16
+      ],
+      "webhookId": "c28cdde7-d983-4cbb-8115-263b06d2eed3"
     },
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "7a31f1ba-3f9f-42cc-be4e-a9f0b3db3a11",
-   "name": "Gather Channel Context",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1376,
-    -16
-   ],
-   "parameters": {
-    "query": "SELECT\n  (SELECT round(score)::int FROM account_score WHERE account = $1) AS account_score,\n  (SELECT hard_points FROM account_score WHERE account = $1) AS hard_points,\n  (SELECT soft_points FROM account_score WHERE account = $1) AS soft_points,\n  (SELECT json_agg(x) FROM (SELECT action_type, status, created_at::date AS on_date FROM actions WHERE account = $1 ORDER BY created_at DESC LIMIT 8) x) AS prior_actions,\n  (SELECT json_agg(x) FROM (SELECT channel, touches, conversions, conv_rate_pct FROM dashboard_channel_performance ORDER BY conversions DESC, touches DESC LIMIT 8) x) AS channel_performance;",
-    "options": {
-     "queryReplacement": "={{ $('Mark Brief Approved').first().json.company }}"
+    {
+      "parameters": {
+        "jsCode": "// Action Recommendation Layer — driven by Parse AI Channel Plan's chosen channel sequence\n// (AI recommendation, Phase 5, with template-fallback if the AI call fails or returns invalid output).\nconst cfg = $('Get Config').first().json || {};\nlet ENV; try { ENV = $env.TRACKING_BASE_URL; } catch (e) { ENV = undefined; }\nconst baseUrl = (cfg.tracking_base_url && String(cfg.tracking_base_url).trim()) || ENV || 'https://example.com';\n\nconst item = $('Mark Brief Approved').first().json;\nconst account = item.company || 'unknown-account';\nconst runId   = item.id;\nconst campaignId = $('Insert Campaign').first().json.id;\n\nlet rp = {};\ntry { rp = typeof item.raw_payload === 'string' ? JSON.parse(item.raw_payload) : (item.raw_payload || {}); } catch (e) { rp = {}; }\nconst bg = Array.isArray(rp.buying_group) ? rp.buying_group : [];\nconst emailDraft = (rp.outreach && rp.outreach.action) || (rp.element_4 && rp.element_4.first_step) || '';\nconst theMove = (rp.element_4 && rp.element_4.the_move) || '';\n\nconst confirmed = bg.find(m => ['CONFIRMED','COMPLETE'].includes(String(m.status || '').toUpperCase()));\nconst primary = confirmed || bg[0] || { name: 'Primary contact (needs enrichment)', focus_area: '' };\nconst targetName = primary.name || 'Primary contact';\n\nconst META = {\n  linkedin_connect: { metric:'linkedin_accept', channel:'linkedin', medium:'connect',    web:false },\n  linkedin_engage:  { metric:'profile_visit',   channel:'linkedin', medium:'engage',     web:false },\n  email:            { metric:'reply_or_meeting',channel:'email',    medium:'outbound',   web:true  },\n  invite:           { metric:'registration',    channel:'email',    medium:'event',      web:true  },\n  landing_page:     { metric:'page_visits',     channel:'web',      medium:'landing',    web:true  },\n  content_download: { metric:'content_download', channel:'web',     medium:'content_dl', web:true  },\n  ads:              { metric:'page_visits',     channel:'ads',      medium:'retarget',   web:true  },\n  webinar:          { metric:'registration',    channel:'webinar',  medium:'invite',     web:true  },\n  phone:            { metric:'call_connected',  channel:'phone',    medium:'call',       web:false },\n  partner:          { metric:'partner_response',channel:'partner',  medium:'intro',      web:false }\n};\n\n// Plan now comes from Parse AI Channel Plan — either the AI-recommended channel sequence\n// (Phase 5: Channel recommendation AI) or, on AI failure/invalid output, the matched\n// campaign_templates row's steps unchanged (Select Campaign Template).\nconst planRow = $('Parse AI Channel Plan').first().json || {};\nlet steps = Array.isArray(planRow.steps) ? planRow.steps : [];\nif (steps.length === 0) {\n  // Fallback safety net if no plan came through at all (should not happen).\n  steps = [\n    { action_type:'linkedin_engage', reason:'Re-engage an already-warm contact', delay_days:0, channel_source:'template' },\n    { action_type:'email',           reason: theMove || 'Go direct for a meeting', delay_days:2, channel_source:'template' }\n  ];\n}\n\nreturn steps.map((s, i) => {\n  const type = s.action_type;\n  const m = META[type] || META.email;\n  const priority = i + 1;\n  const delay_days = typeof s.delay_days === 'number' ? s.delay_days : i * 3;\n  const scheduled_for = new Date(Date.now() + delay_days * 86400000).toISOString();\n  const rand = Math.random().toString(36).slice(2,5);\n  const utm_campaign = 'act-' + runId + '-p' + priority + '-' + rand;\n  const sep = baseUrl.includes('?') ? '&' : '?';\n  const tracked_url = m.web ? (baseUrl + sep + 'utm_source=' + m.channel + '&utm_medium=' + m.medium + '&utm_campaign=' + utm_campaign) : null;\n  const reason = (type === 'email' && theMove) ? theMove : (s.reason || '');\n  const hypothesis = '[P' + priority + '] ' + type.replace(/_/g,' ') + ' → ' + targetName + ' for ' + account + ': expect ' + m.metric.replace(/_/g,' ') + ' within 14 days.';\n  return { json: {\n    campaign_id: campaignId,\n    run_id: runId, account, target: targetName,\n    action_type: type, priority, reason,\n    delay_days, scheduled_for,\n    hypothesis, predicted_metric: m.metric, predicted_direction: 'increase',\n    threshold: 1, window_days: 14,\n    utm_campaign, tracked_url,\n    outreach_draft: type === 'email' ? emailDraft : '',\n    channel_source: s.channel_source || 'template',\n    channel_reco_reason: s.channel_reco_reason || null,\n    status: 'recommended'\n  }};\n});"
+      },
+      "id": "0ba4c543-31c6-4a0b-98a8-6611e98234b9",
+      "name": "Recommend Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        -16
+      ]
     },
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "93c7df88-b59d-4a5e-9e1f-9d8716933e89",
-   "name": "Build Channel Context",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1632,
-    -16
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const approved = $('Mark Brief Approved').first().json;\nconst ctx = $json;\n\nlet rp = {};\ntry { rp = typeof approved.raw_payload === 'string' ? JSON.parse(approved.raw_payload) : (approved.raw_payload || {}); } catch (e) { rp = {}; }\nconst industry = (rp.account && rp.account.industry) || '';\nconst theme = (rp.account && rp.account.theme) || '';\nconst bg = Array.isArray(rp.buying_group) ? rp.buying_group : [];\nconst bgSummary = bg.length\n  ? bg.map(m => (m.name || 'Unnamed') + ' (' + (m.title || 'no title') + ', ' + (m.focus_area || 'n/a') + ') — ' + (m.status || 'unknown status')).join('; ')\n  : 'No buying-group contacts identified yet.';\n\nconst tmplRaw = $('Select Campaign Template').first().json || {};\nlet templateSteps = tmplRaw.steps;\nif (typeof templateSteps === 'string') { try { templateSteps = JSON.parse(templateSteps); } catch (e) { templateSteps = []; } }\nif (!Array.isArray(templateSteps)) templateSteps = [];\n\nconst priorActions = ctx.prior_actions || [];\nconst priorSummary = priorActions.length\n  ? priorActions.map(a => a.action_type + ' (' + a.status + ', ' + a.on_date + ')').join('; ')\n  : 'No prior actions recorded for this account yet.';\n\nconst perf = ctx.channel_performance || [];\nconst perfSummary = perf.length\n  ? perf.map(p => p.channel + ': ' + p.touches + ' touches, ' + p.conversions + ' conversions (' + (p.conv_rate_pct ?? 0) + '%)').join('; ')\n  : 'No engagement/conversion data recorded across the pipeline yet (pre-traffic).';\n\nreturn [{ json: {\n  company: approved.company || 'unknown',\n  industry, theme,\n  coverage_label: approved.coverage_label || '',\n  when_urgency: approved.when_urgency || '',\n  when_stage: approved.when_stage || '',\n  trigger_type: approved.trigger_type || '',\n  buying_group_summary: bgSummary,\n  template_key: tmplRaw.key || '',\n  template_name: tmplRaw.name || '',\n  template_steps_json: JSON.stringify(templateSteps),\n  account_score: ctx.account_score ?? 'unknown',\n  hard_points: ctx.hard_points ?? 0,\n  soft_points: ctx.soft_points ?? 0,\n  prior_channels_summary: priorSummary,\n  channel_performance_summary: perfSummary\n} }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "482bed17-85da-4f7e-9430-491cd12db2f5",
-   "name": "OpenAI Chat Model — Channel Reco",
-   "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-   "position": [
-    1856,
-    176
-   ],
-   "parameters": {
-    "model": {
-     "__rl": true,
-     "mode": "list",
-     "value": "gpt-5-mini"
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "actions",
+          "cachedResultName": "actions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "account": "={{ $json.account }}",
+            "action_type": "={{ $json.action_type }}",
+            "hypothesis": "={{ $json.hypothesis }}",
+            "predicted_metric": "={{ $json.predicted_metric }}",
+            "predicted_direction": "={{ $json.predicted_direction }}",
+            "threshold": "={{ $json.threshold }}",
+            "window_days": "={{ $json.window_days }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "tracked_url": "={{ $json.tracked_url }}",
+            "status": "={{ $json.status }}",
+            "outreach_draft": "={{ $json.outreach_draft }}",
+            "target": "={{ $json.target }}",
+            "priority": "={{ $json.priority }}",
+            "reason": "={{ $json.reason }}",
+            "campaign_id": "={{ $json.campaign_id }}",
+            "channel_source": "={{ $json.channel_source }}",
+            "channel_reco_reason": "={{ $json.channel_reco_reason }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5d7ee377-a813-45e0-bf70-bddea65e964b",
+      "name": "Insert Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2672,
+        -160
+      ]
     },
-    "options": {
-     "timeout": 60000,
-     "maxRetries": 1,
-     "responseFormat": "json_object",
-     "reasoningEffort": "low"
+    {
+      "parameters": {
+        "sendTo": "={{ ($('Get HMAC Secret').first().json.rep_email || '').trim() || 'rep-not-set@example.com' }}",
+        "subject": "=Action plan for {{ $json.account }} ({{ $json.count }} actions)",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {},
+        "resource": "message",
+        "operation": "send"
+      },
+      "id": "a789c1aa-c7f0-45e4-a57e-a8ce00b61793",
+      "name": "Action Approval Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        96
+      ],
+      "webhookId": "f300b1ae-a972-47dd-b8a0-9ddae74ac2eb"
     },
-    "responsesApiEnabled": false
-   },
-   "credentials": {
-    "openAiApi": {
-     "id": "dJxyXpOYQSqrDm62",
-     "name": "OpenAI account"
-    }
-   },
-   "typeVersion": 1.3
-  },
-  {
-   "id": "6bd28642-6f96-4c41-acfb-94dba4f260cc",
-   "name": "Channel Recommendation AI",
-   "type": "@n8n/n8n-nodes-langchain.agent",
-   "onError": "continueErrorOutput",
-   "position": [
-    1872,
-    -16
-   ],
-   "parameters": {
-    "text": "=Default cadence proposed by the campaign template \"{{ $json.template_name }}\" ({{ $json.template_key }}):\n{{ $json.template_steps_json }}\n\nAccount: {{ $json.company }}\nIndustry: {{ $json.industry }}\nTheme: {{ $json.theme }}\nCoverage: {{ $json.coverage_label }}\nUrgency: {{ $json.when_urgency }}\nStage: {{ $json.when_stage }}\nTrigger: {{ $json.trigger_type }}\n\nBuying group: {{ $json.buying_group_summary }}\n\nThis account's prior actions: {{ $json.prior_channels_summary }}\nAccount engagement score (0-100, 'unknown' if no data yet): {{ $json.account_score }}\nChannel performance across the whole pipeline so far: {{ $json.channel_performance_summary }}\n\nDecide the channel sequence (cadence) for this account now.",
-    "options": {
-     "systemMessage": "You are a B2B multichannel outreach strategist sitting downstream of a rule-based campaign template that already proposed a default channel cadence. Decide the actual channel sequence for THIS account using its posture (industry, theme, buying-group roles and confirmation status, urgency, stage), its own prior channel history, and channel performance observed across the pipeline so far — not just the template's generic rule.\n\nYou may keep the template's proposed sequence unchanged if it already fits well, reorder it, swap individual channels for a better fit, add or remove a step, or adjust timing. Favor direct channels (email, phone, linkedin_connect) toward buying-group contacts whose status is CONFIRMED. Favor content/landing-page/ads channels when contacts still \"need enrichment\" or have no confirmed contact. Avoid recommending the same channel back-to-back unless this account's history shows that channel working unusually well for it. If there is no prior history or performance data yet (pre-traffic), rely on posture and buying-group signals.\n\nOnly use action_type values from this exact list: linkedin_connect, linkedin_engage, email, invite, landing_page, content_download, ads, webinar, phone, partner.\n\nRespond with ONLY valid JSON, no markdown fences, no commentary, in exactly this shape:\n{\"steps\":[{\"step_number\":1,\"action_type\":\"...\",\"delay_days\":0,\"reason\":\"...\"}],\"strategy_summary\":\"...\"}\n\nUse 2 to 6 steps. Each step's \"reason\" must be under 40 words and specific to this account, not generic."
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✓ Brief approved — prioritized action plan generated and sent for review.",
+        "options": {}
+      },
+      "id": "0b3d0548-c4bc-4962-abc1-d61fa2ef347f",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        96
+      ]
     },
-    "promptType": "define"
-   },
-   "typeVersion": 3.1
-  },
-  {
-   "id": "de735e9f-d4b4-43ae-8b58-9da1ad388fc0",
-   "name": "Parse AI Channel Plan",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    2192,
-    -16
-   ],
-   "parameters": {
-    "jsCode": "const VOCAB = ['linkedin_connect','linkedin_engage','email','invite','landing_page','content_download','ads','webinar','phone','partner'];\n\nlet templateSteps = [];\ntry {\n  const tsJson = $('Build Channel Context').first().json.template_steps_json;\n  templateSteps = JSON.parse(tsJson || '[]');\n} catch (e) { templateSteps = []; }\nif (!Array.isArray(templateSteps) || templateSteps.length === 0) {\n  templateSteps = [\n    { action_type:'linkedin_engage', reason:'Re-engage an already-warm contact', delay_days:0 },\n    { action_type:'email', reason:'Go direct for a meeting', delay_days:2 }\n  ];\n}\n\nfunction fallback() {\n  return templateSteps.map(s => ({\n    action_type: s.action_type,\n    delay_days: typeof s.delay_days === 'number' ? s.delay_days : 0,\n    reason: s.reason || '',\n    channel_source: 'template',\n    channel_reco_reason: null\n  }));\n}\n\nlet aiItem = null;\ntry { aiItem = $('Channel Recommendation AI').first().json; } catch (e) { aiItem = null; }\n\nlet plan = null;\ntry {\n  const raw = aiItem && (aiItem.output ?? aiItem.text ?? '');\n  if (raw) {\n    const cleaned = String(raw).trim()\n      .replace(/^```json\\s*/i, '')\n      .replace(/^```\\s*/, '')\n      .replace(/```\\s*$/, '');\n    const parsed = JSON.parse(cleaned);\n    if (parsed && Array.isArray(parsed.steps)) {\n      const summary = parsed.strategy_summary || '';\n      const valid = parsed.steps\n        .filter(s => s && VOCAB.includes(s.action_type) && Number.isFinite(Number(s.delay_days)) && Number(s.delay_days) >= 0 && Number(s.delay_days) <= 60)\n        .slice(0, 8)\n        .map(s => ({\n          action_type: s.action_type,\n          delay_days: Math.round(Number(s.delay_days)),\n          reason: String(s.reason || '').slice(0, 300),\n          channel_source: 'ai',\n          channel_reco_reason: String(s.reason || summary || '').slice(0, 500)\n        }));\n      if (valid.length > 0) plan = valid;\n    }\n  }\n} catch (e) { plan = null; }\n\nconst steps = plan || fallback();\nreturn [{ json: { steps, used_ai: !!plan } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "4f85dbfe-8d45-4228-b471-7838f797afba",
-   "name": "Build Template Match Trace",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    1040,
-    -16
-   ],
-   "parameters": {
-    "mode": "runOnceForAllItems",
-    "jsCode": "const rows = $input.all().map(i => i.json);\nif (rows.length === 0) {\n  return [{ json: { id: null, key: null, name: null, steps: [], priority: null, template_match_trace: JSON.stringify({ matched_count: 0, winner_key: null, runner_ups: [], reason: 'No campaign_templates row matched this brief on urgency/coverage/stage/keyword filters.' }) } }];\n}\nconst winner = rows[0];\nconst runnerUps = rows.slice(1).map(r => ({ key: r.key, name: r.name, priority: r.priority }));\nconst trace = {\n  matched_count: rows.length,\n  winner_key: winner.key,\n  winner_name: winner.name,\n  winner_priority: winner.priority,\n  runner_ups: runnerUps,\n  reason: runnerUps.length\n    ? `Matched ${rows.length} templates on urgency/coverage/stage/keyword filters; \"${winner.name}\" (priority ${winner.priority}) won on lowest priority. Also matched: ${runnerUps.map(r => `${r.name} (priority ${r.priority})`).join(', ')}.`\n    : `Only \"${winner.name}\" matched — no competing templates for this brief.`\n};\nreturn [{ json: { ...winner, template_match_trace: JSON.stringify(trace) } }];"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "7df828bf-7e55-4eba-a483-58b45209367f",
-   "name": "Get HMAC Secret",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    -704,
-    320
-   ],
-   "parameters": {
-    "query": "select value from app_config where key='approval_hmac_secret';",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_runs SET notes = 'Brief rejected'\nWHERE id = {{ $json.query.id }}\n  AND human_approved = false\n  AND coalesce(notes, '') <> 'Brief rejected'\nRETURNING id, company, raw_payload, (select value from app_config where key='when_engine_url') as when_engine_url;",
+        "options": {}
+      },
+      "id": "581dbf7a-d0a6-4565-bc0a-d3f704cda268",
+      "name": "Mark Brief Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=✕ Brief rejected — forwarded to WHEN Engine for re-decision.",
+        "options": {}
+      },
+      "id": "3b70e17e-77f1-4484-afab-62c2d24941f4",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  max(value) filter (where key='tracking_base_url') as tracking_base_url,\n  max(value) filter (where key='ga4_property_id')  as ga4_property_id\nFROM app_config;",
+        "options": {}
+      },
+      "id": "e62961d5-779e-4ae2-b688-83b5db09d0f5",
+      "name": "Get Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\nlet brief = row.raw_payload;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = null; } }\nif (!brief || typeof brief !== 'object') {\n  brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.company || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n}\nbrief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\nbrief.human_signals.push({ type:'human_rejection', gate:'brief', reason:'rejected_by_human', rejected_at:new Date().toISOString(), source:'delivery_layer', run_id: row.id });\nreturn [{ json: { when_engine_url: row.when_engine_url || '', payload: brief } }];"
+      },
+      "id": "4080737e-ef2e-4d14-aa7c-93d70d575fec",
+      "name": "Build WHEN Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "u1",
+              "leftValue": "={{ $json.when_engine_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9515a8c6-378a-40b8-af22-708a76214a56",
+      "name": "Engine URL set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        736,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.when_engine_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "f55843a2-d615-48bd-94ca-fbbd26737e14",
+      "name": "Forward to WHEN Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1152,
+        448
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`action:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst rows = $('Insert Action').all().map(i => i.json);\nrows.sort((a,b) => (a.priority||0) - (b.priority||0));\nconst account = (rows[0] && rows[0].account) || 'account';\nconst base = 'https://designprodigy.app.n8n.cloud/webhook/action-approval';\nconst lines = rows.map(r =>\n  r.priority + '. [' + r.action_type + '] → ' + (r.target || 'target') + '\\n' +\n  '   ' + (r.reason || '') + '\\n' +\n  '   APPROVE: ' + base + '?id=' + r.id + '&action=approve&sig=' + sign(r.id, 'approve') + '\\n' +\n  '   REJECT:  ' + base + '?id=' + r.id + '&action=reject&sig=' + sign(r.id, 'reject')\n);\nconst message = 'Recommended action plan for ' + account + ' (' + rows.length + ' actions, prioritized):\\n\\n' + lines.join('\\n\\n');\nreturn [{ json: { account, count: rows.length, message } }];"
+      },
+      "id": "23a2b88b-9766-451e-87f1-a314cda6033e",
+      "name": "Summarize Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst SECRET = $('Get HMAC Secret').first().json.value;\nfunction sign(id, action) {\n  return crypto.createHmac('sha256', SECRET).update(`brief:${id}:${action}`).digest('hex').slice(0, 32);\n}\nconst q = ($('Webhook (brief approve/reject)').item.json.query) || {};\nconst id = q.id;\nconst action = q.action;\nconst sig = q.sig || '';\nconst idOk = typeof id === 'string' && /^[0-9]+$/.test(id);\nconst actionOk = action === 'approve' || action === 'reject';\nlet sigOk = false;\nif (idOk && actionOk) {\n  const expected = sign(id, action);\n  const a = Buffer.from(String(sig));\n  const b = Buffer.from(expected);\n  sigOk = a.length === b.length && crypto.timingSafeEqual(a, b);\n}\nconst valid = idOk && actionOk && sigOk;\nreturn [{ json: { valid, query: { id: idOk ? id : '', action: actionOk ? action : '' } } }];"
+      },
+      "id": "9cdd72c1-af6f-4cf2-90f8-65a24046ade4",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "sigvalid1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "17c7ce26-057b-48bb-b234-a6efc0d52deb",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -368,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✕ Invalid or expired approval link.",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "c5379d61-2a89-46b1-a7fe-05c9879dbc97",
+      "name": "Respond Invalid Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -176,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "campaigns",
+          "cachedResultName": "campaigns"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Mark Brief Approved').first().json.id }}",
+            "account": "={{ $('Mark Brief Approved').first().json.company }}",
+            "status": "active",
+            "template_key": "={{ $('Select Campaign Template').first().json.key }}",
+            "template_match_trace": "={{ $('Build Template Match Trace').first().json.template_match_trace }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c6fbcf30-59ae-4643-8545-e8ba9d00159a",
+      "name": "Insert Campaign",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1184,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "duenow1",
+              "leftValue": "={{ $json.delay_days }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4c5d3c13-6d66-4076-838b-9b393eb326eb",
+      "name": "Due Now?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2496,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "cadence_steps",
+          "cachedResultName": "cadence_steps"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "campaign_id": "={{ $json.campaign_id }}",
+            "account": "={{ $json.account }}",
+            "step_number": "={{ $json.priority }}",
+            "delay_days": 0,
+            "scheduled_for": "={{ $now.toISO() }}",
+            "action_type": "={{ $json.action_type }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "hypothesis": "={{ $json.hypothesis }}",
+            "predicted_metric": "={{ $json.predicted_metric }}",
+            "predicted_direction": "={{ $json.predicted_direction }}",
+            "threshold": "={{ $json.threshold }}",
+            "window_days": "={{ $json.window_days }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "tracked_url": "={{ $json.tracked_url }}",
+            "outreach_draft": "={{ $json.outreach_draft }}",
+            "status": "recommended",
+            "action_id": "={{ $json.id }}",
+            "channel_source": "={{ $json.channel_source }}",
+            "channel_reco_reason": "={{ $json.channel_reco_reason }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "174b3346-2584-4aca-8794-0446f71e88aa",
+      "name": "Insert Step Record (Immediate)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2896,
+        -336
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "cadence_steps",
+          "cachedResultName": "cadence_steps"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "campaign_id": "={{ $json.campaign_id }}",
+            "account": "={{ $json.account }}",
+            "step_number": "={{ $json.priority }}",
+            "delay_days": "={{ $json.delay_days }}",
+            "scheduled_for": "={{ $json.scheduled_for }}",
+            "action_type": "={{ $json.action_type }}",
+            "target": "={{ $json.target }}",
+            "reason": "={{ $json.reason }}",
+            "hypothesis": "={{ $json.hypothesis }}",
+            "predicted_metric": "={{ $json.predicted_metric }}",
+            "predicted_direction": "={{ $json.predicted_direction }}",
+            "threshold": "={{ $json.threshold }}",
+            "window_days": "={{ $json.window_days }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "tracked_url": "={{ $json.tracked_url }}",
+            "outreach_draft": "={{ $json.outreach_draft }}",
+            "status": "pending",
+            "channel_source": "={{ $json.channel_source }}",
+            "channel_reco_reason": "={{ $json.channel_reco_reason }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "11622e70-974c-475d-a809-de4b2a436c8b",
+      "name": "Insert Cadence Steps (Scheduled)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2688,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "customObject",
+        "customObject": "Campaign",
+        "customFieldsUi": {
+          "customFieldsValues": [
+            {
+              "fieldId": "Name",
+              "value": "={{ $('Mark Brief Approved').first().json.company }} — Run #{{ $('Mark Brief Approved').first().json.id }}"
+            },
+            {
+              "fieldId": "Status",
+              "value": "In Progress"
+            },
+            {
+              "fieldId": "Type",
+              "value": "Other"
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "id": "11ec31b8-04d7-4e26-b8c7-9087dd53f7e5",
+      "name": "Create Salesforce Campaign",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        -272
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE campaigns SET salesforce_campaign_id = '{{ $json.id }}', salesforce_sync_status = 'synced', salesforce_synced_at = now() WHERE id = {{ $('Insert Campaign').first().json.id }};",
+        "options": {}
+      },
+      "id": "8d4d4b3b-81fe-4ed5-b833-2de4e2b90dc2",
+      "name": "Mark Salesforce Synced",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1552,
+        -384
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE campaigns SET salesforce_sync_status = 'error', salesforce_sync_error = $1 WHERE id = $2;",
+        "options": {
+          "queryReplacement": "={{ ($json.error && $json.error.message) || $json.message || 'Unknown Salesforce error' }}, {{ $('Insert Campaign').first().json.id }}"
+        }
+      },
+      "id": "78995152-e2b9-4d5b-933a-20836edc3755",
+      "name": "Mark Salesforce Sync Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1552,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, key, name, steps, priority FROM campaign_templates WHERE (match_urgency_in IS NULL OR upper($1) = ANY(match_urgency_in)) AND (match_coverage_in IS NULL OR upper($2) = ANY(match_coverage_in)) AND (match_stage_contains IS NULL OR upper($3) ILIKE '%' || upper(match_stage_contains) || '%') AND (match_keywords IS NULL OR EXISTS (SELECT 1 FROM unnest(match_keywords) kw WHERE $4 ILIKE '%'||kw||'%')) ORDER BY priority ASC;",
+        "options": {
+          "queryReplacement": "={{ [ $('Mark Brief Approved').first().json.when_urgency || '', $('Mark Brief Approved').first().json.coverage_label || '', $('Mark Brief Approved').first().json.when_stage || '', $('Mark Brief Approved').first().json.trigger_type || '' ] }}"
+        }
+      },
+      "id": "7b23cf13-f98a-405a-b29c-06ece3a128e4",
+      "name": "Select Campaign Template",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT round(score)::int FROM account_score WHERE account = $1) AS account_score,\n  (SELECT hard_points FROM account_score WHERE account = $1) AS hard_points,\n  (SELECT soft_points FROM account_score WHERE account = $1) AS soft_points,\n  (SELECT json_agg(x) FROM (SELECT action_type, status, created_at::date AS on_date FROM actions WHERE account = $1 ORDER BY created_at DESC LIMIT 8) x) AS prior_actions,\n  (SELECT json_agg(x) FROM (SELECT channel, touches, conversions, conv_rate_pct FROM dashboard_channel_performance ORDER BY conversions DESC, touches DESC LIMIT 8) x) AS channel_performance,\n  (SELECT value FROM app_config WHERE key='channel_explore_enabled') AS explore_enabled,\n  (SELECT value FROM app_config WHERE key='channel_explore_epsilon') AS explore_epsilon,\n  (SELECT value FROM app_config WHERE key='approval_required_channels') AS approval_required_channels;",
+        "options": {
+          "queryReplacement": "={{ $('Mark Brief Approved').first().json.company }}"
+        }
+      },
+      "id": "7a31f1ba-3f9f-42cc-be4e-a9f0b3db3a11",
+      "name": "Gather Channel Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1376,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const approved = $('Mark Brief Approved').first().json;\nconst ctx = $json;\n\nlet rp = {};\ntry { rp = typeof approved.raw_payload === 'string' ? JSON.parse(approved.raw_payload) : (approved.raw_payload || {}); } catch (e) { rp = {}; }\nconst industry = (rp.account && rp.account.industry) || '';\nconst theme = (rp.account && rp.account.theme) || '';\nconst bg = Array.isArray(rp.buying_group) ? rp.buying_group : [];\nconst bgSummary = bg.length\n  ? bg.map(m => (m.name || 'Unnamed') + ' (' + (m.title || 'no title') + ', ' + (m.focus_area || 'n/a') + ') — ' + (m.status || 'unknown status')).join('; ')\n  : 'No buying-group contacts identified yet.';\n\nconst tmplRaw = $('Select Campaign Template').first().json || {};\nlet templateSteps = tmplRaw.steps;\nif (typeof templateSteps === 'string') { try { templateSteps = JSON.parse(templateSteps); } catch (e) { templateSteps = []; } }\nif (!Array.isArray(templateSteps)) templateSteps = [];\n\nconst priorActions = ctx.prior_actions || [];\nconst priorSummary = priorActions.length\n  ? priorActions.map(a => a.action_type + ' (' + a.status + ', ' + a.on_date + ')').join('; ')\n  : 'No prior actions recorded for this account yet.';\n\nconst perf = ctx.channel_performance || [];\nconst perfSummary = perf.length\n  ? perf.map(p => p.channel + ': ' + p.touches + ' touches, ' + p.conversions + ' conversions (' + (p.conv_rate_pct ?? 0) + '%)').join('; ')\n  : 'No engagement/conversion data recorded across the pipeline yet (pre-traffic).';\n\nreturn [{ json: {\n  company: approved.company || 'unknown',\n  industry, theme,\n  coverage_label: approved.coverage_label || '',\n  when_urgency: approved.when_urgency || '',\n  when_stage: approved.when_stage || '',\n  trigger_type: approved.trigger_type || '',\n  buying_group_summary: bgSummary,\n  template_key: tmplRaw.key || '',\n  template_name: tmplRaw.name || '',\n  template_steps_json: JSON.stringify(templateSteps),\n  account_score: ctx.account_score ?? 'unknown',\n  hard_points: ctx.hard_points ?? 0,\n  soft_points: ctx.soft_points ?? 0,\n  prior_channels_summary: priorSummary,\n  channel_performance_summary: perfSummary\n} }];"
+      },
+      "id": "93c7df88-b59d-4a5e-9e1f-9d8716933e89",
+      "name": "Build Channel Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "responseFormat": "json_object",
+          "reasoningEffort": "low",
+          "timeout": 60000,
+          "maxRetries": 1
+        }
+      },
+      "id": "482bed17-85da-4f7e-9430-491cd12db2f5",
+      "name": "OpenAI Chat Model — Channel Reco",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Default cadence proposed by the campaign template \"{{ $json.template_name }}\" ({{ $json.template_key }}):\n{{ $json.template_steps_json }}\n\nAccount: {{ $json.company }}\nIndustry: {{ $json.industry }}\nTheme: {{ $json.theme }}\nCoverage: {{ $json.coverage_label }}\nUrgency: {{ $json.when_urgency }}\nStage: {{ $json.when_stage }}\nTrigger: {{ $json.trigger_type }}\n\nBuying group: {{ $json.buying_group_summary }}\n\nThis account's prior actions: {{ $json.prior_channels_summary }}\nAccount engagement score (0-100, 'unknown' if no data yet): {{ $json.account_score }}\nChannel performance across the whole pipeline so far: {{ $json.channel_performance_summary }}\n\nDecide the channel sequence (cadence) for this account now.",
+        "options": {
+          "systemMessage": "You are a B2B multichannel outreach strategist sitting downstream of a rule-based campaign template that already proposed a default channel cadence. Decide the actual channel sequence for THIS account using its posture (industry, theme, buying-group roles and confirmation status, urgency, stage), its own prior channel history, and channel performance observed across the pipeline so far — not just the template's generic rule.\n\nYou may keep the template's proposed sequence unchanged if it already fits well, reorder it, swap individual channels for a better fit, add or remove a step, or adjust timing. Favor direct channels (email, phone, linkedin_connect) toward buying-group contacts whose status is CONFIRMED. Favor content/landing-page/ads channels when contacts still \"need enrichment\" or have no confirmed contact. Avoid recommending the same channel back-to-back unless this account's history shows that channel working unusually well for it. If there is no prior history or performance data yet (pre-traffic), rely on posture and buying-group signals.\n\nOnly use action_type values from this exact list: linkedin_connect, linkedin_engage, email, invite, landing_page, content_download, ads, webinar, phone, partner.\n\nRespond with ONLY valid JSON, no markdown fences, no commentary, in exactly this shape:\n{\"steps\":[{\"step_number\":1,\"action_type\":\"...\",\"delay_days\":0,\"reason\":\"...\"}],\"strategy_summary\":\"...\"}\n\nUse 2 to 6 steps. Each step's \"reason\" must be under 40 words and specific to this account, not generic."
+        }
+      },
+      "id": "6bd28642-6f96-4c41-acfb-94dba4f260cc",
+      "name": "Channel Recommendation AI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1872,
+        -16
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const VOCAB = ['linkedin_connect','linkedin_engage','email','invite','landing_page','content_download','ads','webinar','phone','partner'];\n\nlet templateSteps = [];\ntry {\n  const tsJson = $('Build Channel Context').first().json.template_steps_json;\n  templateSteps = JSON.parse(tsJson || '[]');\n} catch (e) { templateSteps = []; }\nif (!Array.isArray(templateSteps) || templateSteps.length === 0) {\n  templateSteps = [\n    { action_type:'linkedin_engage', reason:'Re-engage an already-warm contact', delay_days:0 },\n    { action_type:'email', reason:'Go direct for a meeting', delay_days:2 }\n  ];\n}\n\nfunction fallback() {\n  return templateSteps.map(s => ({\n    action_type: s.action_type,\n    delay_days: typeof s.delay_days === 'number' ? s.delay_days : 0,\n    reason: s.reason || '',\n    channel_source: 'template',\n    channel_reco_reason: null\n  }));\n}\n\nlet aiItem = null;\ntry { aiItem = $('Channel Recommendation AI').first().json; } catch (e) { aiItem = null; }\n\nlet plan = null;\ntry {\n  const raw = aiItem && (aiItem.output ?? aiItem.text ?? '');\n  if (raw) {\n    const cleaned = String(raw).trim()\n      .replace(/^```json\\s*/i, '')\n      .replace(/^```\\s*/, '')\n      .replace(/```\\s*$/, '');\n    const parsed = JSON.parse(cleaned);\n    if (parsed && Array.isArray(parsed.steps)) {\n      const summary = parsed.strategy_summary || '';\n      const valid = parsed.steps\n        .filter(s => s && VOCAB.includes(s.action_type) && Number.isFinite(Number(s.delay_days)) && Number(s.delay_days) >= 0 && Number(s.delay_days) <= 60)\n        .slice(0, 8)\n        .map(s => ({\n          action_type: s.action_type,\n          delay_days: Math.round(Number(s.delay_days)),\n          reason: String(s.reason || '').slice(0, 300),\n          channel_source: 'ai',\n          channel_reco_reason: String(s.reason || summary || '').slice(0, 500)\n        }));\n      if (valid.length > 0) plan = valid;\n    }\n  }\n} catch (e) { plan = null; }\n\nconst steps = plan || fallback();\n\n// --- Channel-mix exploration (epsilon-greedy) -------------------------------\n// For a fraction epsilon of steps, override the chosen channel with a RANDOM\n// draw so the MMM can estimate channel effects free of the confounding that\n// comes from AI/rep channel choice. Config lives in app_config, surfaced by the\n// upstream 'Gather Channel Context' node. Off unless channel_explore_enabled='true'.\n// Approval-required channels (phone/partner) are excluded from random draws so\n// exploration never silently triggers a human-approval channel.\nlet exploreCfg = {};\ntry { exploreCfg = $('Gather Channel Context').first().json || {}; } catch (e) { exploreCfg = {}; }\nconst exploreEnabled = String(exploreCfg.explore_enabled ?? '').trim().toLowerCase() === 'true';\nlet epsilon = parseFloat(exploreCfg.explore_epsilon);\nif (!Number.isFinite(epsilon)) epsilon = 0;\nepsilon = Math.max(0, Math.min(1, epsilon));\nconst approvalRequired = String(exploreCfg.approval_required_channels ?? '')\n  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);\nconst exploreMenu = VOCAB.filter(c => !approvalRequired.includes(c));\n\nlet finalSteps = steps;\nif (exploreEnabled && epsilon > 0 && exploreMenu.length > 0) {\n  finalSteps = steps.map(s => {\n    if (Math.random() < epsilon) {\n      const drew = exploreMenu[Math.floor(Math.random() * exploreMenu.length)];\n      return {\n        action_type: drew,\n        delay_days: s.delay_days,\n        reason: s.reason,\n        channel_source: 'explore',\n        channel_reco_reason: ('explore: eps=' + epsilon + ' drew ' + drew + ' (overrode ' + s.action_type + ')').slice(0, 500)\n      };\n    }\n    return s;\n  });\n}\n\nconst explored_count = finalSteps.filter(s => s.channel_source === 'explore').length;\nreturn [{ json: { steps: finalSteps, used_ai: !!plan, explored_count } }];"
+      },
+      "id": "de735e9f-d4b4-43ae-8b58-9da1ad388fc0",
+      "name": "Parse AI Channel Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nif (rows.length === 0) {\n  return [{ json: { id: null, key: null, name: null, steps: [], priority: null, template_match_trace: JSON.stringify({ matched_count: 0, winner_key: null, runner_ups: [], reason: 'No campaign_templates row matched this brief on urgency/coverage/stage/keyword filters.' }) } }];\n}\nconst winner = rows[0];\nconst runnerUps = rows.slice(1).map(r => ({ key: r.key, name: r.name, priority: r.priority }));\nconst trace = {\n  matched_count: rows.length,\n  winner_key: winner.key,\n  winner_name: winner.name,\n  winner_priority: winner.priority,\n  runner_ups: runnerUps,\n  reason: runnerUps.length\n    ? `Matched ${rows.length} templates on urgency/coverage/stage/keyword filters; \"${winner.name}\" (priority ${winner.priority}) won on lowest priority. Also matched: ${runnerUps.map(r => `${r.name} (priority ${r.priority})`).join(', ')}.`\n    : `Only \"${winner.name}\" matched — no competing templates for this brief.`\n};\nreturn [{ json: { ...winner, template_match_trace: JSON.stringify(trace) } }];"
+      },
+      "id": "4f85dbfe-8d45-4228-b471-7838f797afba",
+      "name": "Build Template Match Trace",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select value,\n       coalesce(nullif((select value from app_config where key='rep_notification_email'),''), 'rep-not-set@example.com') as rep_email\nfrom app_config where key='approval_hmac_secret';",
+        "options": {}
+      },
+      "id": "7df828bf-7e55-4eba-a483-58b45209367f",
+      "name": "Get HMAC Secret",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -704,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "briefupd1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "916e6268-43e7-4c74-a223-51a23357b32c",
+      "name": "Brief Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        176,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "rejupd1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "98eda512-dbcd-4538-9f45-8791032d3a12",
+      "name": "Reject Updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        176,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "This brief has already been processed.",
+        "options": {}
+      },
+      "id": "a3da75e8-4504-4c97-9b22-9e2febf116f8",
+      "name": "Respond Already Processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO campaign_objectives (campaign_id, funnel_stage, objective_key, objective_label, success_events, target_value, window_days)\nSELECT {{ $('Insert Campaign').first().json.id }}, t.funnel_stage, COALESCE(t.kpi_metric, t.key), t.name, COALESCE(t.objective_success_events, '{}'::text[]), COALESCE(t.objective_target_value, 1), COALESCE(t.objective_window_days, 21)\nFROM campaign_templates t\nWHERE t.key = '{{ $('Select Campaign Template').first().json.key }}'\n  AND t.funnel_stage IS NOT NULL\n  AND NOT EXISTS (SELECT 1 FROM campaign_objectives o WHERE o.campaign_id = {{ $('Insert Campaign').first().json.id }});",
+        "options": {}
+      },
+      "id": "67f29423-f685-4e01-9733-5d69ad438e34",
+      "name": "Create Campaign Objective",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1376,
+        272
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://designprodigy.app.n8n.cloud/webhook/run-draft-backfill",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "6e7dbcaf-11f4-47b2-a41d-eb74df5efb79",
+      "name": "Trigger Draft Backfill",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3216,
+        -64
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Fire-and-forget: kicks Draft Backfill immediately after steps/actions are created so outreach drafts are ready in ~seconds instead of waiting for the 2h schedule. Webhook responds onReceived; failures are swallowed (the 2h schedule is the safety net)."
     }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "916e6268-43e7-4c74-a223-51a23357b32c",
-   "name": "Brief Updated?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    176,
-    0
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "briefupd1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.id }}",
-       "rightValue": ""
-      }
-     ]
+  ],
+  "connections": {
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark Brief Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Brief Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Approval Email": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Brief to Rep": {
+      "main": [
+        [
+          {
+            "node": "Get Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WHEN Feedback": {
+      "main": [
+        [
+          {
+            "node": "Engine URL set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine URL set?": {
+      "main": [
+        [
+          {
+            "node": "Forward to WHEN Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to WHEN Engine": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Action": {
+      "main": [
+        [
+          {
+            "node": "Summarize Plan",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Insert Step Record (Immediate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Plan": {
+      "main": [
+        [
+          {
+            "node": "Action Approval Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Campaign": {
+      "main": [
+        [
+          {
+            "node": "Create Salesforce Campaign",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gather Channel Context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create Campaign Objective",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recommend Action": {
+      "main": [
+        [
+          {
+            "node": "Due Now?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Due Now?": {
+      "main": [
+        [
+          {
+            "node": "Insert Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Cadence Steps (Scheduled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Salesforce Campaign": {
+      "main": [
+        [
+          {
+            "node": "Mark Salesforce Synced",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Salesforce Sync Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Config": {
+      "main": [
+        [
+          {
+            "node": "Select Campaign Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gather Channel Context": {
+      "main": [
+        [
+          {
+            "node": "Build Channel Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Channel Context": {
+      "main": [
+        [
+          {
+            "node": "Channel Recommendation AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model — Channel Reco": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Channel Recommendation AI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Recommendation AI": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Channel Plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse AI Channel Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Channel Plan": {
+      "main": [
+        [
+          {
+            "node": "Recommend Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Campaign Template": {
+      "main": [
+        [
+          {
+            "node": "Build Template Match Trace",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Template Match Trace": {
+      "main": [
+        [
+          {
+            "node": "Insert Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (brief approve/reject)": {
+      "main": [
+        [
+          {
+            "node": "Get HMAC Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HMAC Secret": {
+      "main": [
+        [
+          {
+            "node": "Verify Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Brief Approved": {
+      "main": [
+        [
+          {
+            "node": "Brief Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief Updated?": {
+      "main": [
+        [
+          {
+            "node": "Send Brief to Rep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Brief Rejected": {
+      "main": [
+        [
+          {
+            "node": "Reject Updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject Updated?": {
+      "main": [
+        [
+          {
+            "node": "Build WHEN Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Cadence Steps (Scheduled)": {
+      "main": [
+        [
+          {
+            "node": "Trigger Draft Backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Step Record (Immediate)": {
+      "main": [
+        [
+          {
+            "node": "Trigger Draft Backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "typeVersion": 2.3
   },
-  {
-   "id": "98eda512-dbcd-4538-9f45-8791032d3a12",
-   "name": "Reject Updated?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    176,
-    368
-   ],
-   "parameters": {
-    "options": {},
-    "conditions": {
-     "options": {
-      "version": 3,
-      "leftValue": "",
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "rejupd1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.id }}",
-       "rightValue": ""
-      }
-     ]
-    }
-   },
-   "typeVersion": 2.3
-  },
-  {
-   "id": "a3da75e8-4504-4c97-9b22-9e2febf116f8",
-   "name": "Respond Already Processed",
-   "type": "n8n-nodes-base.respondToWebhook",
-   "position": [
-    480,
-    192
-   ],
-   "parameters": {
-    "options": {},
-    "respondWith": "text",
-    "responseBody": "This brief has already been processed."
-   },
-   "typeVersion": 1.1
-  },
-  {
-   "id": "67f29423-f685-4e01-9733-5d69ad438e34",
-   "name": "Create Campaign Objective",
-   "type": "n8n-nodes-base.postgres",
-   "onError": "continueRegularOutput",
-   "position": [
-    1376,
-    272
-   ],
-   "parameters": {
-    "query": "INSERT INTO campaign_objectives (campaign_id, funnel_stage, objective_key, objective_label, success_events, target_value, window_days)\nSELECT {{ $('Insert Campaign').first().json.id }}, t.funnel_stage, COALESCE(t.kpi_metric, t.key), t.name, COALESCE(t.objective_success_events, '{}'::text[]), COALESCE(t.objective_target_value, 1), COALESCE(t.objective_window_days, 21)\nFROM campaign_templates t\nWHERE t.key = '{{ $('Select Campaign Template').first().json.key }}'\n  AND t.funnel_stage IS NOT NULL\n  AND NOT EXISTS (SELECT 1 FROM campaign_objectives o WHERE o.campaign_id = {{ $('Insert Campaign').first().json.id }});",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "6e7dbcaf-11f4-47b2-a41d-eb74df5efb79",
-   "name": "Trigger Draft Backfill",
-   "type": "n8n-nodes-base.httpRequest",
-   "notes": "Fire-and-forget: kicks Draft Backfill immediately after steps/actions are created so outreach drafts are ready in ~seconds instead of waiting for the 2h schedule. Webhook responds onReceived; failures are swallowed (the 2h schedule is the safety net).",
-   "onError": "continueRegularOutput",
-   "position": [
-    3120,
-    -128
-   ],
-   "parameters": {
-    "url": "https://designprodigy.app.n8n.cloud/webhook/run-draft-backfill",
-    "method": "POST",
-    "options": {
-     "timeout": 5000
-    }
-   },
-   "executeOnce": true,
-   "typeVersion": 4.4
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Due Now?": {
-   "main": [
-    [
-     {
-      "node": "Insert Action",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Insert Cadence Steps (Scheduled)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Approved?": {
-   "main": [
-    [
-     {
-      "node": "Mark Brief Approved",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Mark Brief Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get Config": {
-   "main": [
-    [
-     {
-      "node": "Select Campaign Template",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert Action": {
-   "main": [
-    [
-     {
-      "node": "Summarize Plan",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Insert Step Record (Immediate)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Brief Updated?": {
-   "main": [
-    [
-     {
-      "node": "Send Brief to Rep",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Already Processed",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Summarize Plan": {
-   "main": [
-    [
-     {
-      "node": "Action Approval Email",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Engine URL set?": {
-   "main": [
-    [
-     {
-      "node": "Forward to WHEN Engine",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get HMAC Secret": {
-   "main": [
-    [
-     {
-      "node": "Verify Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert Campaign": {
-   "main": [
-    [
-     {
-      "node": "Create Salesforce Campaign",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Gather Channel Context",
-      "type": "main",
-      "index": 0
-     },
-     {
-      "node": "Create Campaign Objective",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Reject Updated?": {
-   "main": [
-    [
-     {
-      "node": "Build WHEN Feedback",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Already Processed",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Recommend Action": {
-   "main": [
-    [
-     {
-      "node": "Due Now?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Signature Valid?": {
-   "main": [
-    [
-     {
-      "node": "Approved?",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Respond Invalid Signature",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Verify Signature": {
-   "main": [
-    [
-     {
-      "node": "Signature Valid?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Send Brief to Rep": {
-   "main": [
-    [
-     {
-      "node": "Get Config",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build WHEN Feedback": {
-   "main": [
-    [
-     {
-      "node": "Engine URL set?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Brief Approved": {
-   "main": [
-    [
-     {
-      "node": "Brief Updated?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Mark Brief Rejected": {
-   "main": [
-    [
-     {
-      "node": "Reject Updated?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Action Approval Email": {
-   "main": [
-    [
-     {
-      "node": "Respond Approved",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Channel Context": {
-   "main": [
-    [
-     {
-      "node": "Channel Recommendation AI",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Parse AI Channel Plan": {
-   "main": [
-    [
-     {
-      "node": "Recommend Action",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Forward to WHEN Engine": {
-   "main": [
-    [
-     {
-      "node": "Respond Rejected",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Gather Channel Context": {
-   "main": [
-    [
-     {
-      "node": "Build Channel Context",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Select Campaign Template": {
-   "main": [
-    [
-     {
-      "node": "Build Template Match Trace",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Channel Recommendation AI": {
-   "main": [
-    [
-     {
-      "node": "Parse AI Channel Plan",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Parse AI Channel Plan",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Template Match Trace": {
-   "main": [
-    [
-     {
-      "node": "Insert Campaign",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Create Salesforce Campaign": {
-   "main": [
-    [
-     {
-      "node": "Mark Salesforce Synced",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Mark Salesforce Sync Error",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert Step Record (Immediate)": {
-   "main": [
-    [
-     {
-      "node": "Trigger Draft Backfill",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Webhook (brief approve/reject)": {
-   "main": [
-    [
-     {
-      "node": "Get HMAC Secret",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Insert Cadence Steps (Scheduled)": {
-   "main": [
-    [
-     {
-      "node": "Trigger Draft Backfill",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "OpenAI Chat Model — Channel Reco": {
-   "ai_languageModel": [
-    [
-     {
-      "node": "Channel Recommendation AI",
-      "type": "ai_languageModel",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "AoVkLOncTxZqQlwz",
-  "activeAtExport": true
- }
 }

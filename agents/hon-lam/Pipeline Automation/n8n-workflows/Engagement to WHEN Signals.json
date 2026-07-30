@@ -1,223 +1,205 @@
 {
- "name": "Engagement -> WHEN Signals",
- "nodes": [
-  {
-   "id": "956bacb2-eeb0-4032-aa9e-43b45c7ba84c",
-   "name": "Daily 7am",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "position": [
-    0,
-    0
-   ],
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "triggerAtHour": 7
+  "name": "Engagement -> WHEN Signals",
+  "nodes": [
+    {
+      "id": "956bacb2-eeb0-4032-aa9e-43b45c7ba84c",
+      "name": "Daily 7am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
       }
-     ]
-    }
-   },
-   "typeVersion": 1.2
-  },
-  {
-   "id": "76544a35-1b4e-42a1-b2c0-930214710041",
-   "name": "Get Unforwarded",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    224,
-    96
-   ],
-   "parameters": {
-    "query": "SELECT e.account,\n  jsonb_agg(jsonb_build_object('type','engagement','signal',e.event_type,'occurred_at',e.occurred_at,'value',e.value) ORDER BY e.occurred_at) AS signals,\n  (SELECT raw_payload FROM pipeline_runs p WHERE p.company = e.account ORDER BY p.run_at DESC LIMIT 1) AS raw_payload,\n  (SELECT value FROM app_config WHERE key='when_engine_url') AS when_engine_url\nFROM engagement_events e\nWHERE e.forwarded = false AND e.account IS NOT NULL\nGROUP BY e.account;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
-    }
-   },
-   "typeVersion": 2.6
-  },
-  {
-   "id": "c96f4d9c-346d-4923-a35a-5f4ead0c4c75",
-   "name": "Build Signals Payload",
-   "type": "n8n-nodes-base.code",
-   "position": [
-    448,
-    96
-   ],
-   "parameters": {
-    "jsCode": "return $input.all().map(i => {\n  const row = i.json;\n  let brief = row.raw_payload;\n  if (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch(e){ brief = null; } }\n  if (!brief || typeof brief !== 'object') {\n    brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.account || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n  }\n  brief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\n  let sigs = row.signals; if (typeof sigs === 'string') { try { sigs = JSON.parse(sigs); } catch(e){ sigs = []; } }\n  if (!Array.isArray(sigs)) sigs = [];\n  for (const s of sigs) brief.human_signals.push({ type:'engagement', signal: s.signal, occurred_at: s.occurred_at, value: s.value, source:'delivery_layer' });\n  return { json: { account: row.account, when_engine_url: row.when_engine_url || '', payload: brief } };\n});"
-   },
-   "typeVersion": 2
-  },
-  {
-   "id": "5d1ccb92-5ae8-4982-b787-aff36ba9083a",
-   "name": "Engine URL set?",
-   "type": "n8n-nodes-base.if",
-   "position": [
-    672,
-    96
-   ],
-   "parameters": {
-    "conditions": {
-     "options": {
-      "version": 3,
-      "caseSensitive": true,
-      "typeValidation": "loose"
-     },
-     "combinator": "and",
-     "conditions": [
-      {
-       "id": "u1",
-       "operator": {
-        "type": "string",
-        "operation": "notEmpty",
-        "singleValue": true
-       },
-       "leftValue": "={{ $json.when_engine_url }}"
+    },
+    {
+      "id": "76544a35-1b4e-42a1-b2c0-930214710041",
+      "name": "Get Unforwarded",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT e.account,\n  jsonb_agg(jsonb_build_object('type','engagement','signal',e.event_type,'occurred_at',e.occurred_at,'value',e.value) ORDER BY e.occurred_at) AS signals,\n  (SELECT raw_payload FROM pipeline_runs p WHERE p.company = e.account ORDER BY p.run_at DESC LIMIT 1) AS raw_payload,\n  (SELECT value FROM app_config WHERE key='when_engine_url') AS when_engine_url\nFROM engagement_events e\nWHERE e.forwarded = false AND e.account IS NOT NULL\nGROUP BY e.account;",
+        "options": {}
       }
-     ]
+    },
+    {
+      "id": "c96f4d9c-346d-4923-a35a-5f4ead0c4c75",
+      "name": "Build Signals Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map(i => {\n  const row = i.json;\n  let brief = row.raw_payload;\n  if (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch(e){ brief = null; } }\n  if (!brief || typeof brief !== 'object') {\n    brief = { meta:{ engine:'WHEN Layer Intelligence Engine', document_type:'account brief', schema_version:'1.1', export_date:new Date().toISOString().slice(0,10) }, account:{ name: row.account || 'unknown' }, signals:[], buying_group:[], human_signals:[] };\n  }\n  brief.human_signals = Array.isArray(brief.human_signals) ? brief.human_signals : [];\n  let sigs = row.signals; if (typeof sigs === 'string') { try { sigs = JSON.parse(sigs); } catch(e){ sigs = []; } }\n  if (!Array.isArray(sigs)) sigs = [];\n  for (const s of sigs) brief.human_signals.push({ type:'engagement', signal: s.signal, occurred_at: s.occurred_at, value: s.value, source:'delivery_layer' });\n  return { json: { account: row.account, when_engine_url: row.when_engine_url || '', payload: brief } };\n});"
+      }
+    },
+    {
+      "id": "5d1ccb92-5ae8-4982-b787-aff36ba9083a",
+      "name": "Engine URL set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "u1",
+              "leftValue": "={{ $json.when_engine_url }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "45e1102b-9e9c-421c-bcaf-b849559d55ca",
+      "name": "Forward to WHEN",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.when_engine_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "368bef3c-a7f8-4094-b730-31972025067a",
+      "name": "Mark Forwarded",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        96
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE engagement_events SET forwarded = true WHERE forwarded = false AND account IS NOT NULL;",
+        "options": {}
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "99274671-8a60-4974-b871-6e2b0d73add0",
+      "name": "Run now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {}
     }
-   },
-   "typeVersion": 2.2
-  },
-  {
-   "id": "45e1102b-9e9c-421c-bcaf-b849559d55ca",
-   "name": "Forward to WHEN",
-   "type": "n8n-nodes-base.httpRequest",
-   "onError": "continueRegularOutput",
-   "position": [
-    896,
-    96
-   ],
-   "parameters": {
-    "url": "={{ $json.when_engine_url }}",
-    "method": "POST",
-    "options": {},
-    "jsonBody": "={{ JSON.stringify($json.payload) }}",
-    "sendBody": true,
-    "specifyBody": "json"
-   },
-   "typeVersion": 4.4
-  },
-  {
-   "id": "368bef3c-a7f8-4094-b730-31972025067a",
-   "name": "Mark Forwarded",
-   "type": "n8n-nodes-base.postgres",
-   "position": [
-    1120,
-    96
-   ],
-   "parameters": {
-    "query": "UPDATE engagement_events SET forwarded = true WHERE forwarded = false AND account IS NOT NULL;",
-    "options": {},
-    "operation": "executeQuery"
-   },
-   "credentials": {
-    "postgres": {
-     "id": "eR1uo2QGR2ZzwysA",
-     "name": "Postgres account"
+  ],
+  "connections": {
+    "Daily 7am": {
+      "main": [
+        [
+          {
+            "node": "Get Unforwarded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Unforwarded": {
+      "main": [
+        [
+          {
+            "node": "Build Signals Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Signals Payload": {
+      "main": [
+        [
+          {
+            "node": "Engine URL set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engine URL set?": {
+      "main": [
+        [
+          {
+            "node": "Forward to WHEN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to WHEN": {
+      "main": [
+        [
+          {
+            "node": "Mark Forwarded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Get Unforwarded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "executeOnce": true,
-   "typeVersion": 2.6
   },
-  {
-   "id": "99274671-8a60-4974-b871-6e2b0d73add0",
-   "name": "Run now",
-   "type": "n8n-nodes-base.manualTrigger",
-   "position": [
-    0,
-    192
-   ],
-   "parameters": {},
-   "typeVersion": 1
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "rVr68buB9TD3qR5Y",
+    "callerPolicy": "workflowsFromSameOwner"
   }
- ],
- "connections": {
-  "Run now": {
-   "main": [
-    [
-     {
-      "node": "Get Unforwarded",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Daily 7am": {
-   "main": [
-    [
-     {
-      "node": "Get Unforwarded",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Engine URL set?": {
-   "main": [
-    [
-     {
-      "node": "Forward to WHEN",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Forward to WHEN": {
-   "main": [
-    [
-     {
-      "node": "Mark Forwarded",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Get Unforwarded": {
-   "main": [
-    [
-     {
-      "node": "Build Signals Payload",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Build Signals Payload": {
-   "main": [
-    [
-     {
-      "node": "Engine URL set?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "binaryMode": "separate",
-  "callerPolicy": "workflowsFromSameOwner",
-  "errorWorkflow": "rVr68buB9TD3qR5Y",
-  "timeSavedMode": "fixed",
-  "availableInMCP": true,
-  "executionOrder": "v1"
- },
- "pinData": {},
- "meta": {
-  "exportedAt": "2026-07-12",
-  "sourceWorkflowId": "grv4TN8pUrrW0xPa",
-  "activeAtExport": true
- }
 }
