@@ -1,0 +1,3 @@
+[submodule "agents/timotheus/salesbrain"]
+	path = agents/timotheus/salesbrain
+	url = https://github.com/averagebonsai/salesbrain.git
